@@ -1,0 +1,70 @@
+plugins {
+    id("com.android.application")
+    id("org.jetbrains.kotlin.android")
+}
+
+// Build-time defaults for server URL + device API key. Override without editing source via
+// gradle.properties / -P flags / local.properties, e.g.:
+//   ./gradlew assembleDebug -PmdmServerUrl=http://10.0.2.2:8080 -PmdmApiKey=dev-device-key
+// These are only *defaults*; the onboarding screen can override them at runtime (stored in prefs).
+val mdmServerUrl: String = (project.findProperty("mdmServerUrl") as String?) ?: "https://mdm.dev.aioapp.com"
+val mdmApiKey: String = (project.findProperty("mdmApiKey") as String?) ?: ""
+
+android {
+    namespace = "com.aioapp.mdm.agent"
+    compileSdk = 35
+
+    defaultConfig {
+        applicationId = "com.aioapp.mdm.agent"
+        minSdk = 28
+        targetSdk = 35
+        versionCode = 1
+        versionName = "0.1.0"
+
+        buildConfigField("String", "DEFAULT_SERVER_URL", "\"$mdmServerUrl\"")
+        buildConfigField("String", "DEFAULT_API_KEY", "\"$mdmApiKey\"")
+    }
+
+    buildFeatures {
+        buildConfig = true
+        viewBinding = true
+    }
+
+    buildTypes {
+        debug {
+            isMinifyEnabled = false
+            applicationIdSuffix = ".debug"
+            versionNameSuffix = "-debug"
+        }
+        release {
+            isMinifyEnabled = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro",
+            )
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+    kotlinOptions {
+        jvmTarget = "17"
+    }
+}
+
+dependencies {
+    implementation("androidx.core:core-ktx:1.13.1")
+    implementation("androidx.appcompat:appcompat:1.7.0")
+    implementation("com.google.android.material:material:1.12.0")
+    implementation("androidx.lifecycle:lifecycle-service:2.8.6")
+    implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.6")
+
+    // Transport: OkHttp gives us HTTP + WebSocket + gzip + retries, replacing the hand-rolled
+    // RFC-6455 client used by the system-app client.
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
+
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
+    // Lightweight JSON via org.json (bundled in Android) — no extra dep needed for now.
+}

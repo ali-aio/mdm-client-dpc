@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">AIO MDM Agent</string>
+    <string name="admin_description">Allows AIO MDM to manage this device (kiosk, apps, configuration, reboot, and remote support).</string>
+
+    <!-- Onboarding -->
+    <string name="onboarding_title">AIO MDM Agent</string>
+    <string name="status_device_owner">Device Owner</string>
+    <string name="status_serial">Serial</string>
+    <string name="status_server">Server</string>
+    <string name="status_connection">Connection</string>
+    <string name="label_server_url">Server URL</string>
+    <string name="label_api_key">Device API key</string>
+    <string name="action_save">Save &amp; connect</string>
+    <string name="action_test">Test connection</string>
+
+    <string name="do_active">Active — this app is Device Owner</string>
+    <string name="do_inactive">Not provisioned. Run:\n adb shell dpm set-device-owner com.aioapp.mdm.agent/.MdmDeviceAdminReceiver</string>
+</resources>
