@@ -30,12 +30,12 @@ object Capabilities {
     val degraded: List<String> = listOf(
         "screen_capture", // MediaProjection consent per session
         "input",          // AccessibilityService, user-enabled; taps/swipes + nav keys
-        // "logcat"       -> app-scoped + security logs only (Phase 4)
+        "logcat",         // app-scoped logs only (no cross-app READ_LOGS)
+        "safe_shell",     // fixed read-only diagnostic allowlist, not arbitrary shell
     )
 
     /** Not possible without system UID / platform signature. */
     val unsupported: List<String> = listOf(
-        "shell",          // arbitrary Runtime.exec as system
         "logcat_full",    // whole-system READ_LOGS
         "update_splash",  // init-broker partition write
         "ota",            // deferred for v1

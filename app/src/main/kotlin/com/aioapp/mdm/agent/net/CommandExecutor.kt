@@ -4,8 +4,10 @@ import android.content.Context
 import android.util.Log
 import com.aioapp.mdm.agent.AgentConfig
 import com.aioapp.mdm.agent.DeviceOwner
+import android.util.Base64
 import com.aioapp.mdm.agent.device.ApkInstaller
 import com.aioapp.mdm.agent.device.KioskManager
+import com.aioapp.mdm.agent.device.SafeShell
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -47,9 +49,9 @@ class CommandExecutor(
             "reboot" -> reboot(id)
             "wipe" -> wipe(id)
             "config" -> applyConfigCommand(id, payload)
-            "screenshot" -> notYetImplemented(id, type) // Phase 3 (MediaProjection)
+            "screenshot" -> notYetImplemented(id, type) // covered by live screen capture instead
+            "shell" -> safeShell(id, frame, payload)
 
-            "shell" -> unsupported(id, "arbitrary shell requires system UID; use the safe-command runner (Phase 4)")
             "ota" -> unsupported(id, "OTA deferred for the DPC agent (v1)")
             "update_splash" -> unsupported(id, "boot splash requires system partition access")
             else -> unsupported(id, "unknown command type: $type")
@@ -131,6 +133,41 @@ class CommandExecutor(
         } catch (e: Exception) {
             acker.ackCommand(id, "failed", output = "wipe rejected: ${e.message}")
         }
+    }
+
+    /**
+     * "shell" command routed through the [SafeShell] allowlist. Streams output via command_output
+     * and finishes with command_done + exit_code (same wire shape as the system app's shell), so
+     * blocked commands surface a clear message and a non-zero exit in the dashboard.
+     */
+    private fun safeShell(id: String, frame: JSONObject, payload: JSONObject) {
+        val cmd = payload.optString("cmd").ifBlank { payload.optString("command") }
+            .ifBlank { frame.optString("cmd") }
+        if (cmd.isBlank()) {
+            commandDone(id, 2)
+            return
+        }
+        scope.launch(Dispatchers.IO) {
+            val out = SafeShell.run(ctx, cmd)
+            commandOutput(id, out.text)
+            commandDone(id, out.exitCode)
+        }
+    }
+
+    private fun commandOutput(id: String, text: String) {
+        acker.sendWs(JSONObject().apply {
+            put("type", "command_output")
+            put("command_id", id)
+            put("chunk", Base64.encodeToString(text.toByteArray(), Base64.NO_WRAP))
+        })
+    }
+
+    private fun commandDone(id: String, exitCode: Int) {
+        acker.sendWs(JSONObject().apply {
+            put("type", "command_done")
+            put("command_id", id)
+            put("exit_code", exitCode)
+        })
     }
 
     private fun applyConfigCommand(id: String, payload: JSONObject) {

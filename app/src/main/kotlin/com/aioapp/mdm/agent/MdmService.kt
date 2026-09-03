@@ -11,6 +11,7 @@ import androidx.lifecycle.LifecycleService
 import androidx.lifecycle.lifecycleScope
 import com.aioapp.mdm.agent.capture.ScreenCaptureConsentActivity
 import com.aioapp.mdm.agent.capture.ScreenCaptureService
+import com.aioapp.mdm.agent.device.LogcatManager
 import com.aioapp.mdm.agent.net.Acker
 import com.aioapp.mdm.agent.net.ApiClient
 import com.aioapp.mdm.agent.net.CommandExecutor
@@ -38,6 +39,7 @@ class MdmService : LifecycleService(), WsClient.Listener, Acker {
     private lateinit var api: ApiClient
     private lateinit var ws: WsClient
     private lateinit var executor: CommandExecutor
+    private lateinit var logcat: LogcatManager
     private lateinit var serial: String
 
     @Volatile private var wantConnected = false
@@ -53,6 +55,7 @@ class MdmService : LifecycleService(), WsClient.Listener, Acker {
         ws = WsClient(config, this)
         executor = CommandExecutor(this, deviceOwner, this, lifecycleScope)
         serial = DeviceIdentity.serial(this)
+        logcat = LogcatManager(this, serial)
 
         goForeground()
         Log.i(TAG, "MdmService started (deviceOwner=${deviceOwner.isDeviceOwner}, configured=${config.isConfigured})")
@@ -131,7 +134,9 @@ class MdmService : LifecycleService(), WsClient.Listener, Acker {
             "stop_capture" -> ScreenCaptureService.stop(this)
             "input_event" -> AgentBus.input?.handle(msg)
                 ?: Log.w(TAG, "input_event ignored — accessibility service not enabled")
-            // Phase 4: logcat_request, start/stop_logcat_stream.
+            "logcat_request" -> lifecycleScope.launch(Dispatchers.IO) { logcat.oneShot(msg) }
+            "start_logcat_stream" -> logcat.startStream(msg)
+            "stop_logcat_stream" -> logcat.stopStream(msg.optString("request_id"))
             else -> Log.d(TAG, "unhandled WS type=${msg.optString("type")}")
         }
     }
@@ -200,6 +205,7 @@ class MdmService : LifecycleService(), WsClient.Listener, Acker {
     override fun onDestroy() {
         wantConnected = false
         reconnectJob?.cancel()
+        logcat.stopAll()
         ws.close()
         if (AgentBus.acker === this) AgentBus.acker = null
         super.onDestroy()
