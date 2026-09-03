@@ -9,11 +9,14 @@ import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.lifecycle.LifecycleService
 import androidx.lifecycle.lifecycleScope
+import com.aioapp.mdm.agent.capture.ScreenCaptureConsentActivity
+import com.aioapp.mdm.agent.capture.ScreenCaptureService
 import com.aioapp.mdm.agent.net.Acker
 import com.aioapp.mdm.agent.net.ApiClient
 import com.aioapp.mdm.agent.net.CommandExecutor
 import com.aioapp.mdm.agent.net.Telemetry
 import com.aioapp.mdm.agent.net.WsClient
+import okio.ByteString
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -53,6 +56,8 @@ class MdmService : LifecycleService(), WsClient.Listener, Acker {
 
         goForeground()
         Log.i(TAG, "MdmService started (deviceOwner=${deviceOwner.isDeviceOwner}, configured=${config.isConfigured})")
+
+        AgentBus.acker = this
 
         // Re-enforce any persisted kiosk state after a (re)boot.
         if (deviceOwner.isDeviceOwner) executor.applyConfig(JSONObject())
@@ -122,8 +127,11 @@ class MdmService : LifecycleService(), WsClient.Listener, Acker {
             })
             "checkin_now" -> lifecycleScope.launch(Dispatchers.IO) { doCheckin() }
             "cancel_command" -> executor.cancel(msg.optString("id"))
-            // Phase 3/4: logcat_request, start/stop_logcat_stream, start/stop_capture, input_event,
-            // cancel_command. Logged for now.
+            "start_capture" -> startCapture(msg)
+            "stop_capture" -> ScreenCaptureService.stop(this)
+            "input_event" -> AgentBus.input?.handle(msg)
+                ?: Log.w(TAG, "input_event ignored — accessibility service not enabled")
+            // Phase 4: logcat_request, start/stop_logcat_stream.
             else -> Log.d(TAG, "unhandled WS type=${msg.optString("type")}")
         }
     }
@@ -143,6 +151,19 @@ class MdmService : LifecycleService(), WsClient.Listener, Acker {
     // ---- Acker ----
 
     override fun sendWs(msg: JSONObject): Boolean = ws.send(msg)
+
+    override fun sendBinary(bytes: ByteString): Boolean = ws.sendBinary(bytes)
+
+    private fun startCapture(msg: JSONObject) {
+        ScreenCaptureConsentActivity.launch(
+            ctx = this,
+            codec = msg.optString("codec", "h264"),
+            quality = msg.optInt("quality", 70),
+            scale = msg.optDouble("scale", 0.75).toFloat(),
+            fps = msg.optInt("max_fps", 15),
+            bitrate = msg.optInt("bitrate", 4_000_000),
+        )
+    }
 
     override fun ackCommand(commandId: String, status: String, output: String?, progress: Int?, pkg: String?) {
         if (ws.isOpen) {
@@ -180,6 +201,7 @@ class MdmService : LifecycleService(), WsClient.Listener, Acker {
         wantConnected = false
         reconnectJob?.cancel()
         ws.close()
+        if (AgentBus.acker === this) AgentBus.acker = null
         super.onDestroy()
     }
 

@@ -28,9 +28,9 @@ object Capabilities {
 
     /** Degraded relative to the system app (needs on-device consent, or reduced scope). */
     val degraded: List<String> = listOf(
-        // "screen_capture" -> MediaProjection consent per session
-        // "input"          -> AccessibilityService, user-enabled
-        // "logcat"         -> app-scoped + security logs only, not full system logcat
+        "screen_capture", // MediaProjection consent per session
+        "input",          // AccessibilityService, user-enabled; taps/swipes + nav keys
+        // "logcat"       -> app-scoped + security logs only (Phase 4)
     )
 
     /** Not possible without system UID / platform signature. */
