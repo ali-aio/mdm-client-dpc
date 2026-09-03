@@ -2,23 +2,34 @@ package com.aioapp.mdm.agent.net
 
 import android.content.Context
 import android.util.Log
+import com.aioapp.mdm.agent.AgentConfig
 import com.aioapp.mdm.agent.DeviceOwner
+import com.aioapp.mdm.agent.device.ApkInstaller
+import com.aioapp.mdm.agent.device.KioskManager
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import org.json.JSONObject
+import java.util.Collections
 
 /**
  * Routes a server `command` frame to the right Device Owner action.
  *
- * Phase 1: recognizes every command type and acks honestly — truly-unsupported types
- * (shell/ota/update_splash) fail immediately with a clear reason; the ones we'll implement next
- * fail with "not implemented yet". Phase 2 replaces the [notYetImplemented] branches with real
- * DevicePolicyManager / PackageInstaller calls.
+ * Implemented (Phase 2): install_apk, uninstall, reboot, wipe, config (kiosk). Screen/input and
+ * diagnostics land in later phases. Truly-unsupported types (shell/ota/update_splash) fail with a
+ * clear reason so the dashboard shows why instead of hanging.
  */
 class CommandExecutor(
     private val ctx: Context,
     private val deviceOwner: DeviceOwner,
     private val acker: Acker,
+    private val scope: CoroutineScope,
 ) {
-    /** Handle a server->device `command` frame: {id, command_type, apk_url?, payload?}. */
+    private val config = AgentConfig.get(ctx)
+    private val installer = ApkInstaller(ctx, config)
+    private val kiosk = KioskManager(ctx, deviceOwner)
+    private val cancelled = Collections.synchronizedSet(mutableSetOf<String>())
+
     fun handleCommand(frame: JSONObject) {
         val id = frame.optString("id")
         val type = frame.optString("command_type").ifBlank { frame.optString("type") }
@@ -26,29 +37,113 @@ class CommandExecutor(
             Log.w(TAG, "command frame missing id: $frame")
             return
         }
+        val payload = frame.optJSONObject("payload") ?: JSONObject()
         Log.i(TAG, "command $id type=$type")
         acker.ackCommand(id, "received")
 
         when (type) {
-            "install_apk" -> notYetImplemented(id, type)
-            "uninstall" -> notYetImplemented(id, type)
-            "reboot" -> notYetImplemented(id, type)
-            "wipe" -> notYetImplemented(id, type)
-            "config" -> notYetImplemented(id, type)
-            "screenshot" -> notYetImplemented(id, type)
+            "install_apk" -> installApk(id, frame, payload)
+            "uninstall" -> uninstall(id, payload)
+            "reboot" -> reboot(id)
+            "wipe" -> wipe(id)
+            "config" -> applyConfigCommand(id, payload)
+            "screenshot" -> notYetImplemented(id, type) // Phase 3 (MediaProjection)
 
-            // Not possible / out of scope for the DPC agent — fail with a clear reason so the
-            // dashboard shows why rather than hanging.
             "shell" -> unsupported(id, "arbitrary shell requires system UID; use the safe-command runner (Phase 4)")
             "ota" -> unsupported(id, "OTA deferred for the DPC agent (v1)")
             "update_splash" -> unsupported(id, "boot splash requires system partition access")
-
             else -> unsupported(id, "unknown command type: $type")
         }
     }
 
+    /** Apply a server `config` frame/payload (kiosk etc.). Shared by WS config messages. */
+    fun applyConfig(cfg: JSONObject) {
+        config.applyServerConfig(cfg)
+        kiosk.apply(config.kioskEnabled, config.kioskPackage)
+    }
+
+    fun cancel(commandId: String) {
+        cancelled.add(commandId)
+    }
+
+    // ---- handlers ----
+
+    private fun installApk(id: String, frame: JSONObject, payload: JSONObject) {
+        val url = frame.optString("apk_url").ifBlank { payload.optString("apk_url") }
+        if (url.isBlank()) {
+            acker.ackCommand(id, "failed", output = "missing apk_url")
+            return
+        }
+        scope.launch(Dispatchers.IO) {
+            acker.ackCommand(id, "downloading", progress = 0)
+            var lastReported = -1
+            val result = installer.install(url) { pct ->
+                if (cancelled.contains(id)) return@install
+                if (pct - lastReported >= 5 || pct == 100) {
+                    lastReported = pct
+                    val status = if (pct >= 100) "installing" else "downloading"
+                    acker.ackCommand(id, status, progress = pct)
+                }
+            }
+            when {
+                cancelled.remove(id) -> acker.ackCommand(id, "cancelled")
+                result.success -> acker.ackCommand(id, "installed", output = "ok", pkg = result.pkg)
+                else -> acker.ackCommand(id, "failed", output = result.message)
+            }
+        }
+    }
+
+    private fun uninstall(id: String, payload: JSONObject) {
+        val pkg = payload.optString("package")
+        if (pkg.isBlank()) {
+            acker.ackCommand(id, "failed", output = "missing package")
+            return
+        }
+        scope.launch(Dispatchers.IO) {
+            val result = installer.uninstall(pkg)
+            if (result.success) acker.ackCommand(id, "completed", output = "uninstalled $pkg", pkg = pkg)
+            else acker.ackCommand(id, "failed", output = result.message, pkg = pkg)
+        }
+    }
+
+    private fun reboot(id: String) {
+        if (!deviceOwner.isDeviceOwner) {
+            acker.ackCommand(id, "failed", output = "not device owner")
+            return
+        }
+        // Ack before rebooting; the server confirms completion on the device's reconnect.
+        acker.ackCommand(id, "completed", output = "rebooting")
+        try {
+            deviceOwner.dpm.reboot(deviceOwner.admin)
+        } catch (e: Exception) {
+            acker.ackCommand(id, "failed", output = "reboot rejected: ${e.message}")
+        }
+    }
+
+    private fun wipe(id: String) {
+        if (!deviceOwner.isDeviceOwner) {
+            acker.ackCommand(id, "failed", output = "not device owner")
+            return
+        }
+        acker.ackCommand(id, "completed", output = "wiping")
+        try {
+            deviceOwner.dpm.wipeData(0)
+        } catch (e: Exception) {
+            acker.ackCommand(id, "failed", output = "wipe rejected: ${e.message}")
+        }
+    }
+
+    private fun applyConfigCommand(id: String, payload: JSONObject) {
+        try {
+            applyConfig(payload)
+            acker.ackCommand(id, "completed", output = "config applied")
+        } catch (e: Exception) {
+            acker.ackCommand(id, "failed", output = "config error: ${e.message}")
+        }
+    }
+
     private fun notYetImplemented(id: String, type: String) {
-        acker.ackCommand(id, "failed", output = "'$type' not implemented yet (Phase 2)")
+        acker.ackCommand(id, "failed", output = "'$type' not implemented yet")
     }
 
     private fun unsupported(id: String, reason: String) {

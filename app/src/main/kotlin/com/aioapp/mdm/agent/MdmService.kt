@@ -48,11 +48,14 @@ class MdmService : LifecycleService(), WsClient.Listener, Acker {
         deviceOwner = DeviceOwner(this)
         api = ApiClient(config)
         ws = WsClient(config, this)
-        executor = CommandExecutor(this, deviceOwner, this)
+        executor = CommandExecutor(this, deviceOwner, this, lifecycleScope)
         serial = DeviceIdentity.serial(this)
 
         goForeground()
         Log.i(TAG, "MdmService started (deviceOwner=${deviceOwner.isDeviceOwner}, configured=${config.isConfigured})")
+
+        // Re-enforce any persisted kiosk state after a (re)boot.
+        if (deviceOwner.isDeviceOwner) executor.applyConfig(JSONObject())
 
         if (config.isConfigured) startTransport()
     }
@@ -98,7 +101,7 @@ class MdmService : LifecycleService(), WsClient.Listener, Acker {
             // Server wants the full list next time regardless of hash.
             lastKnownAppsHash = null
         }
-        resp.optJSONObject("config")?.let { config.applyServerConfig(it) }
+        resp.optJSONObject("config")?.let { executor.applyConfig(it) }
     }
 
     // ---- WsClient.Listener ----
@@ -111,13 +114,14 @@ class MdmService : LifecycleService(), WsClient.Listener, Acker {
     override fun onMessage(msg: JSONObject) {
         when (msg.optString("type")) {
             "command" -> executor.handleCommand(msg)
-            "config" -> config.applyServerConfig(msg)
+            "config" -> executor.applyConfig(msg)
             "telemetry_request" -> sendTelemetry(includeApps = false)
             "ping_request" -> sendWs(JSONObject().apply {
                 put("type", "pong_response")
                 put("nonce", msg.opt("nonce"))
             })
             "checkin_now" -> lifecycleScope.launch(Dispatchers.IO) { doCheckin() }
+            "cancel_command" -> executor.cancel(msg.optString("id"))
             // Phase 3/4: logcat_request, start/stop_logcat_stream, start/stop_capture, input_event,
             // cancel_command. Logged for now.
             else -> Log.d(TAG, "unhandled WS type=${msg.optString("type")}")
