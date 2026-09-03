@@ -26,6 +26,39 @@ class AgentConfig private constructor(private val ctx: Context) {
     val isConfigured: Boolean
         get() = serverUrl.isNotBlank() && apiKey.isNotBlank()
 
+    // ---- Server-pushed config (checkin `config` object / WS `config` frame) ----
+
+    var checkinIntervalSeconds: Int
+        get() = prefs.getInt(KEY_CHECKIN_INTERVAL, DEFAULT_CHECKIN_INTERVAL)
+        set(value) = prefs.edit().putInt(KEY_CHECKIN_INTERVAL, value.coerceIn(10, 3600)).apply()
+
+    var kioskEnabled: Boolean
+        get() = prefs.getBoolean(KEY_KIOSK_ENABLED, false)
+        set(value) = prefs.edit().putBoolean(KEY_KIOSK_ENABLED, value).apply()
+
+    var kioskPackage: String
+        get() = prefs.getString(KEY_KIOSK_PACKAGE, "")!!
+        set(value) = prefs.edit().putString(KEY_KIOSK_PACKAGE, value).apply()
+
+    /**
+     * Absorb a server `config` object (from the checkin response or a WS `config` frame). Kiosk
+     * enforcement itself happens in the service (Phase 2); here we just persist the desired state.
+     * Returns true if the checkin interval changed (so the caller can reschedule).
+     */
+    fun applyServerConfig(cfg: org.json.JSONObject): Boolean {
+        var intervalChanged = false
+        if (cfg.has("checkin_interval_seconds")) {
+            val newInterval = cfg.optInt("checkin_interval_seconds", checkinIntervalSeconds)
+            if (newInterval != checkinIntervalSeconds) {
+                checkinIntervalSeconds = newInterval
+                intervalChanged = true
+            }
+        }
+        if (cfg.has("kiosk_enabled")) kioskEnabled = cfg.optBoolean("kiosk_enabled", false)
+        if (cfg.has("kiosk_package")) kioskPackage = cfg.optString("kiosk_package", "")
+        return intervalChanged
+    }
+
     /** Derived WebSocket URL: http(s) -> ws(s), path /api/v1/ws?serial=... */
     fun wsUrl(serial: String): String {
         val base = serverUrl
@@ -43,6 +76,10 @@ class AgentConfig private constructor(private val ctx: Context) {
         private const val PREFS = "mdm_agent"
         private const val KEY_SERVER_URL = "server_url"
         private const val KEY_API_KEY = "api_key"
+        private const val KEY_CHECKIN_INTERVAL = "checkin_interval"
+        private const val KEY_KIOSK_ENABLED = "kiosk_enabled"
+        private const val KEY_KIOSK_PACKAGE = "kiosk_package"
+        private const val DEFAULT_CHECKIN_INTERVAL = 30
 
         @Volatile private var instance: AgentConfig? = null
 

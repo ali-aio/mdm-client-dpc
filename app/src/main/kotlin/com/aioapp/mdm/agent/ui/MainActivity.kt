@@ -7,12 +7,18 @@ import android.os.Bundle
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.lifecycleScope
 import com.aioapp.mdm.agent.AgentConfig
 import com.aioapp.mdm.agent.DeviceIdentity
 import com.aioapp.mdm.agent.DeviceOwner
 import com.aioapp.mdm.agent.MdmService
 import com.aioapp.mdm.agent.R
 import com.aioapp.mdm.agent.databinding.ActivityMainBinding
+import com.aioapp.mdm.agent.net.ApiClient
+import com.aioapp.mdm.agent.net.Telemetry
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * Onboarding + status screen. Shows Device Owner state and serial, lets the operator set the
@@ -39,10 +45,7 @@ class MainActivity : AppCompatActivity() {
         binding.inputApiKey.setText(config.apiKey)
 
         binding.buttonSave.setOnClickListener { save() }
-        binding.buttonTest.setOnClickListener {
-            // TODO(Phase 1): real health check against /api/v1/checkin.
-            refreshStatus()
-        }
+        binding.buttonTest.setOnClickListener { testConnection() }
 
         maybeRequestNotifPermission()
     }
@@ -57,6 +60,22 @@ class MainActivity : AppCompatActivity() {
         config.apiKey = binding.inputApiKey.text?.toString().orEmpty()
         MdmService.start(this)
         refreshStatus()
+    }
+
+    private fun testConnection() {
+        // Persist current field values first so we test what's on screen.
+        config.serverUrl = binding.inputServerUrl.text?.toString().orEmpty()
+        config.apiKey = binding.inputApiKey.text?.toString().orEmpty()
+        binding.statusConnection.text = getString(R.string.status_connection) + ": testing…"
+        lifecycleScope.launch {
+            val ok = withContext(Dispatchers.IO) {
+                runCatching {
+                    ApiClient(config).checkin(Telemetry.buildCheckin(this@MainActivity, includeApps = false)) != null
+                }.getOrDefault(false)
+            }
+            binding.statusConnection.text = getString(R.string.status_connection) + ": " +
+                if (ok) "connected ✓" else "failed ✗"
+        }
     }
 
     private fun refreshStatus() {
