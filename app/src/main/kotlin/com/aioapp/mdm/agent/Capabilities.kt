@@ -23,7 +23,7 @@ object Capabilities {
         "config",
         "telemetry",
         // Phase 3/4 flip these on as handlers land:
-        // "screen_capture", "input", "security_log", "bugreport", "safe_shell",
+        // "screen_capture", "input", "security_log", "bugreport", "shell",           // real persistent sh (unprivileged app UID)
     )
 
     /** Degraded relative to the system app (needs on-device consent, or reduced scope). */
@@ -31,7 +31,7 @@ object Capabilities {
         "screen_capture", // MediaProjection consent per session
         "input",          // AccessibilityService, user-enabled; taps/swipes + nav keys
         "logcat",         // app-scoped logs only (no cross-app READ_LOGS)
-        "safe_shell",     // fixed read-only diagnostic allowlist, not arbitrary shell
+        "shell",           // real persistent sh (unprivileged app UID)
     )
 
     /** Not possible without system UID / platform signature. */
