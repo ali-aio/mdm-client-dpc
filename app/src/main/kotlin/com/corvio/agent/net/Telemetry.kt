@@ -38,20 +38,21 @@ object Telemetry {
     }
 
     fun buildCheckin(ctx: Context, includeApps: Boolean): JSONObject {
-        val battery = readBattery(ctx)
+        val batteryIntent = ctx.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+        val battery = readBattery(batteryIntent)
         val obj = JSONObject().apply {
             put("serial_number", DeviceIdentity.serial(ctx))
             put("build_id", DeviceIdentity.buildId())
             put("product", DeviceIdentity.product())
             if (battery != null) put("battery_pct", battery)
             put("apps_hash", appsHash(ctx))
-            put("extra", buildExtra(ctx))
+            put("extra", buildExtra(ctx, batteryIntent))
         }
         if (includeApps) obj.put("installed_apps", installedApps(ctx))
         return obj
     }
 
-    private fun buildExtra(ctx: Context): JSONObject {
+    private fun buildExtra(ctx: Context, batteryIntent: Intent?): JSONObject {
         val am = ctx.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
         val mem = ActivityManager.MemoryInfo().also { am.getMemoryInfo(it) }
         val stat = StatFs(Environment.getDataDirectory().path)
@@ -68,7 +69,19 @@ object Telemetry {
             put("storage_total_bytes", stat.totalBytes)
             put("ram_free_bytes", mem.availMem)
             put("ram_total_bytes", mem.totalMem)
+            // Same battery-broadcast telemetry the system client reports (MdmService.java):
+            // temperature feeds the dashboard's hottest-device/running-hot surfaces, charging
+            // feeds the on-charger vital and filters. EXTRA_TEMPERATURE is tenths of a °C.
+            val tenths = batteryIntent?.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, Int.MIN_VALUE)
+            if (tenths != null && tenths != Int.MIN_VALUE) put("battery_temp_c", tenths / 10.0)
+            if (batteryIntent != null) put("charging", isCharging(batteryIntent))
         }
+    }
+
+    private fun isCharging(batteryIntent: Intent): Boolean {
+        if (batteryIntent.getIntExtra(BatteryManager.EXTRA_PLUGGED, 0) != 0) return true
+        val status = batteryIntent.getIntExtra(BatteryManager.EXTRA_STATUS, BatteryManager.BATTERY_STATUS_UNKNOWN)
+        return status == BatteryManager.BATTERY_STATUS_CHARGING || status == BatteryManager.BATTERY_STATUS_FULL
     }
 
     private fun installedApps(ctx: Context): JSONArray {
@@ -113,8 +126,8 @@ object Telemetry {
         android.util.Base64.encodeToString(out.toByteArray(), android.util.Base64.NO_WRAP)
     }.getOrNull()
 
-    private fun readBattery(ctx: Context): Int? {
-        val intent = ctx.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED)) ?: return null
+    private fun readBattery(intent: Intent?): Int? {
+        if (intent == null) return null
         val level = intent.getIntExtra(BatteryManager.EXTRA_LEVEL, -1)
         val scale = intent.getIntExtra(BatteryManager.EXTRA_SCALE, -1)
         return if (level >= 0 && scale > 0) (level * 100 / scale) else null
