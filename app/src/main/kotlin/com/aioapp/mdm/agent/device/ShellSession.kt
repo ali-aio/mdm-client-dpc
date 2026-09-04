@@ -1,6 +1,5 @@
 package com.aioapp.mdm.agent.device
 
-import android.util.Base64
 import android.util.Log
 import com.aioapp.mdm.agent.net.Acker
 import org.json.JSONObject
@@ -116,10 +115,12 @@ class ShellSession(private val acker: Acker) {
     }
 
     private fun output(id: String, text: String) {
+        // The server relays `chunk` verbatim to the terminal's SSE (no base64 decode on the
+        // server/browser side), so send RAW text — JSON handles escaping.
         acker.sendWs(JSONObject().apply {
             put("type", "command_output")
             put("command_id", id)
-            put("chunk", Base64.encodeToString(text.toByteArray(), Base64.NO_WRAP))
+            put("chunk", text)
         })
     }
 
