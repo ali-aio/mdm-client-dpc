@@ -73,19 +73,45 @@ object Telemetry {
 
     private fun installedApps(ctx: Context): JSONArray {
         val pm = ctx.packageManager
+        // Packages that have a launcher (drawer) entry. The server's app-lock picker
+        // only offers these — pinning to a package with no launch activity can't work.
+        val launcherIntent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
+        val launchable = pm.queryIntentActivities(launcherIntent, 0)
+            .mapNotNull { it.activityInfo?.packageName }
+            .toHashSet()
         val arr = JSONArray()
         for (pkg in pm.getInstalledPackages(0)) {
             val ai = pkg.applicationInfo ?: continue
             val isSystem = (ai.flags and android.content.pm.ApplicationInfo.FLAG_SYSTEM) != 0
+            val isLaunchable = launchable.contains(pkg.packageName)
             arr.put(JSONObject().apply {
                 put("package", pkg.packageName)
                 put("name", pm.getApplicationLabel(ai).toString())
                 put("version_name", pkg.versionName ?: pkg.longVersionCodeCompat().toString())
                 put("is_system", isSystem)
+                put("launchable", isLaunchable)
+                // Only ship an icon for drawer apps — that's all the picker renders, and
+                // it keeps the checkin payload small. Best-effort; skip on any failure.
+                if (isLaunchable) launcherIconBase64(pm, ai)?.let { put("icon", it) }
             })
         }
         return arr
     }
+
+    /** Renders a package's launcher icon to a small base64 PNG (48dp) for the app-lock picker. */
+    private fun launcherIconBase64(pm: android.content.pm.PackageManager,
+                                   ai: android.content.pm.ApplicationInfo): String? = runCatching {
+        val drawable = pm.getApplicationIcon(ai)
+        val size = 96 // px — crisp at the picker's ~44px tile, still tiny on the wire
+        val bmp = android.graphics.Bitmap.createBitmap(size, size, android.graphics.Bitmap.Config.ARGB_8888)
+        val canvas = android.graphics.Canvas(bmp)
+        drawable.setBounds(0, 0, size, size)
+        drawable.draw(canvas)
+        val out = java.io.ByteArrayOutputStream()
+        bmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, out)
+        bmp.recycle()
+        android.util.Base64.encodeToString(out.toByteArray(), android.util.Base64.NO_WRAP)
+    }.getOrNull()
 
     private fun readBattery(ctx: Context): Int? {
         val intent = ctx.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED)) ?: return null
