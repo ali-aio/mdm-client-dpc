@@ -1,4 +1,4 @@
-package com.corvio.agent
+package com.skorra.agent
 
 import android.app.admin.DeviceAdminReceiver
 import android.content.Context
@@ -7,7 +7,7 @@ import android.util.Log
 
 /**
  * Device Admin / Device Owner receiver. The DO component referenced by:
- *   adb shell dpm set-device-owner com.corvio.agent/.MdmDeviceAdminReceiver
+ *   adb shell dpm set-device-owner com.skorra.agent/.MdmDeviceAdminReceiver
  *
  * Also handles managed-provisioning completion (QR / zero-touch, Phase 6) via
  * [onProfileProvisioningComplete].

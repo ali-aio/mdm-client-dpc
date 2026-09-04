@@ -1,12 +1,12 @@
-package com.corvio.agent.net
+package com.skorra.agent.net
 
 import android.content.Context
 import android.util.Log
-import com.corvio.agent.AgentConfig
-import com.corvio.agent.DeviceOwner
-import com.corvio.agent.device.ApkInstaller
-import com.corvio.agent.device.KioskManager
-import com.corvio.agent.device.ShellSession
+import com.skorra.agent.AgentConfig
+import com.skorra.agent.DeviceOwner
+import com.skorra.agent.device.ApkInstaller
+import com.skorra.agent.device.KioskManager
+import com.skorra.agent.device.ShellSession
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch

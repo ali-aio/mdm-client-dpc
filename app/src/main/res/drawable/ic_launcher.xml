@@ -6,7 +6,7 @@
     <path
         android:fillColor="#161925"
         android:pathData="M0,0h108v108h-108z" />
-    <!-- Shield glyph in Corvio indigo -->
+    <!-- Shield glyph in Skorra indigo -->
     <path
         android:fillColor="#4F46E5"
         android:pathData="M54,26 L78,36 L78,58 C78,72 68,80 54,86 C40,80 30,72 30,58 L30,36 Z" />

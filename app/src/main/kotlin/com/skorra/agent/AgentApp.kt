@@ -1,4 +1,4 @@
-package com.corvio.agent
+package com.skorra.agent
 
 import android.app.Application
 import android.app.NotificationChannel

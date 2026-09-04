@@ -1,4 +1,4 @@
-package com.corvio.agent.input
+package com.skorra.agent.input
 
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.GestureDescription
@@ -10,7 +10,7 @@ import android.util.Log
 import android.view.KeyEvent
 import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
-import com.corvio.agent.AgentBus
+import com.skorra.agent.AgentBus
 import org.json.JSONObject
 import kotlin.math.hypot
 

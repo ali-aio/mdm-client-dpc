@@ -1,4 +1,4 @@
-package com.corvio.agent.device
+package com.skorra.agent.device
 
 import android.app.admin.DevicePolicyManager
 import android.content.ComponentName
@@ -7,8 +7,8 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.util.Log
-import com.corvio.agent.DeviceOwner
-import com.corvio.agent.kiosk.KioskHostActivity
+import com.skorra.agent.DeviceOwner
+import com.skorra.agent.kiosk.KioskHostActivity
 
 /**
  * App-lock (kiosk) control via Device Owner APIs. Real, exit-resistant locking of a third-party

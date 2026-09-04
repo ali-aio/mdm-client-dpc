@@ -1,4 +1,4 @@
-package com.corvio.agent
+package com.skorra.agent
 
 import android.app.Notification
 import android.content.Context
@@ -9,14 +9,14 @@ import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.lifecycle.LifecycleService
 import androidx.lifecycle.lifecycleScope
-import com.corvio.agent.capture.ScreenCaptureConsentActivity
-import com.corvio.agent.capture.ScreenCaptureService
-import com.corvio.agent.device.LogcatManager
-import com.corvio.agent.net.Acker
-import com.corvio.agent.net.ApiClient
-import com.corvio.agent.net.CommandExecutor
-import com.corvio.agent.net.Telemetry
-import com.corvio.agent.net.WsClient
+import com.skorra.agent.capture.ScreenCaptureConsentActivity
+import com.skorra.agent.capture.ScreenCaptureService
+import com.skorra.agent.device.LogcatManager
+import com.skorra.agent.net.Acker
+import com.skorra.agent.net.ApiClient
+import com.skorra.agent.net.CommandExecutor
+import com.skorra.agent.net.Telemetry
+import com.skorra.agent.net.WsClient
 import okio.ByteString
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job

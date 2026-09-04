@@ -1,4 +1,4 @@
-package com.corvio.agent.ui
+package com.skorra.agent.ui
 
 import android.Manifest
 import android.content.pm.PackageManager
@@ -8,14 +8,14 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
-import com.corvio.agent.AgentConfig
-import com.corvio.agent.DeviceIdentity
-import com.corvio.agent.DeviceOwner
-import com.corvio.agent.MdmService
-import com.corvio.agent.R
-import com.corvio.agent.databinding.ActivityMainBinding
-import com.corvio.agent.net.ApiClient
-import com.corvio.agent.net.Telemetry
+import com.skorra.agent.AgentConfig
+import com.skorra.agent.DeviceIdentity
+import com.skorra.agent.DeviceOwner
+import com.skorra.agent.MdmService
+import com.skorra.agent.R
+import com.skorra.agent.databinding.ActivityMainBinding
+import com.skorra.agent.net.ApiClient
+import com.skorra.agent.net.Telemetry
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext

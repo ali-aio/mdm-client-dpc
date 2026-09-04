@@ -1,6 +1,6 @@
-package com.corvio.agent
+package com.skorra.agent
 
-import com.corvio.agent.net.Acker
+import com.skorra.agent.net.Acker
 import org.json.JSONObject
 
 /**

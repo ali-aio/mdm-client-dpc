@@ -1,4 +1,4 @@
-package com.corvio.agent
+package com.skorra.agent
 
 import android.content.BroadcastReceiver
 import android.content.Context

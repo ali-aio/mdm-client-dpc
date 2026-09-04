@@ -1,4 +1,4 @@
-package com.corvio.agent
+package com.skorra.agent
 
 /**
  * What this DPC agent can and cannot do, reported to the server on checkin as

@@ -1,4 +1,4 @@
-package com.corvio.agent.net
+package com.skorra.agent.net
 
 import org.json.JSONObject
 

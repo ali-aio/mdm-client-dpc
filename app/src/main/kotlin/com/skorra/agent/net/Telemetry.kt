@@ -1,4 +1,4 @@
-package com.corvio.agent.net
+package com.skorra.agent.net
 
 import android.app.ActivityManager
 import android.content.Context
@@ -9,8 +9,8 @@ import android.os.Build
 import android.os.Environment
 import android.os.StatFs
 import android.os.SystemClock
-import com.corvio.agent.Capabilities
-import com.corvio.agent.DeviceIdentity
+import com.skorra.agent.Capabilities
+import com.skorra.agent.DeviceIdentity
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.TimeZone

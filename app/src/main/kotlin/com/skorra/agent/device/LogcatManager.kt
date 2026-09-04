@@ -1,7 +1,7 @@
-package com.corvio.agent.device
+package com.skorra.agent.device
 
 import android.util.Log
-import com.corvio.agent.net.Acker
+import com.skorra.agent.net.Acker
 import org.json.JSONObject
 import java.io.BufferedReader
 import java.util.concurrent.ConcurrentHashMap

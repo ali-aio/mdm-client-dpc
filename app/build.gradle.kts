@@ -11,11 +11,11 @@ val mdmServerUrl: String = (project.findProperty("mdmServerUrl") as String?) ?: 
 val mdmApiKey: String = (project.findProperty("mdmApiKey") as String?) ?: ""
 
 android {
-    namespace = "com.corvio.agent"
+    namespace = "com.skorra.agent"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.corvio.agent"
+        applicationId = "com.skorra.agent"
         minSdk = 28
         targetSdk = 35
         versionCode = 1

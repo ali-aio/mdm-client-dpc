@@ -1,4 +1,4 @@
-package com.corvio.agent.kiosk
+package com.skorra.agent.kiosk
 
 import android.app.Activity
 import android.app.ActivityManager
@@ -7,13 +7,13 @@ import android.content.Intent
 import android.os.Build
 import android.os.Bundle
 import android.util.Log
-import com.corvio.agent.AgentConfig
-import com.corvio.agent.ui.MainActivity
+import com.skorra.agent.AgentConfig
+import com.skorra.agent.ui.MainActivity
 
 /**
  * The heart of a real, exit-resistant app lock.
  *
- * Set as the device Home by [com.corvio.agent.device.KioskManager], so the Home button and every
+ * Set as the device Home by [com.skorra.agent.device.KioskManager], so the Home button and every
  * boot land here. On resume it enters **lock-task mode** (`startLockTask` — screen pinning, which
  * disables the nav bar's Home/Recents/Back), then launches the locked app (allow-listed, so it
  * stays pinned). A third-party app can't be pinned from outside on its own, so we pin *our* Home

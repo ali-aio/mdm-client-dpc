@@ -1,14 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Corvio brand: indigo #4F46E5 -->
-    <color name="corvio_indigo">#4F46E5</color>
-    <color name="corvio_indigo_light">#818CF8</color>
-    <color name="corvio_ink">#161925</color>
-    <color name="corvio_bg">#FFFFFF</color>
+    <!-- Skorra brand: indigo #4F46E5 -->
+    <color name="skorra_indigo">#4F46E5</color>
+    <color name="skorra_indigo_light">#818CF8</color>
+    <color name="skorra_ink">#161925</color>
+    <color name="skorra_bg">#FFFFFF</color>
 
     <style name="Theme.MdmAgent" parent="Theme.Material3.DayNight.NoActionBar">
-        <item name="colorPrimary">@color/corvio_indigo</item>
-        <item name="colorSecondary">@color/corvio_indigo_light</item>
-        <item name="android:statusBarColor">@color/corvio_ink</item>
+        <item name="colorPrimary">@color/skorra_indigo</item>
+        <item name="colorSecondary">@color/skorra_indigo_light</item>
+        <item name="android:statusBarColor">@color/skorra_ink</item>
     </style>
 </resources>

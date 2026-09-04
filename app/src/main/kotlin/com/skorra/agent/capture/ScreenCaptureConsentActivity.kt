@@ -1,4 +1,4 @@
-package com.corvio.agent.capture
+package com.skorra.agent.capture
 
 import android.app.Activity
 import android.content.Context

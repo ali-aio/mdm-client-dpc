@@ -1,7 +1,7 @@
-package com.corvio.agent.net
+package com.skorra.agent.net
 
 import android.util.Log
-import com.corvio.agent.AgentConfig
+import com.skorra.agent.AgentConfig
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
