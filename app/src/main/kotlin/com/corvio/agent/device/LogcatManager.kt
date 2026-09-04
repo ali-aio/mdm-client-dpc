@@ -1,7 +1,7 @@
-package com.aioapp.mdm.agent.device
+package com.corvio.agent.device
 
 import android.util.Log
-import com.aioapp.mdm.agent.net.Acker
+import com.corvio.agent.net.Acker
 import org.json.JSONObject
 import java.io.BufferedReader
 import java.util.concurrent.ConcurrentHashMap

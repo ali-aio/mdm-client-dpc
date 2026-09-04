@@ -1,14 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- AIO brand: coral #F9674E + periwinkle #7A80F6 -->
-    <color name="aio_coral">#F9674E</color>
-    <color name="aio_periwinkle">#7A80F6</color>
-    <color name="aio_ink">#1B1B22</color>
-    <color name="aio_bg">#FFFFFF</color>
+    <!-- Corvio brand: indigo #4F46E5 -->
+    <color name="corvio_indigo">#4F46E5</color>
+    <color name="corvio_indigo_light">#818CF8</color>
+    <color name="corvio_ink">#161925</color>
+    <color name="corvio_bg">#FFFFFF</color>
 
     <style name="Theme.MdmAgent" parent="Theme.Material3.DayNight.NoActionBar">
-        <item name="colorPrimary">@color/aio_periwinkle</item>
-        <item name="colorSecondary">@color/aio_coral</item>
-        <item name="android:statusBarColor">@color/aio_ink</item>
+        <item name="colorPrimary">@color/corvio_indigo</item>
+        <item name="colorSecondary">@color/corvio_indigo_light</item>
+        <item name="android:statusBarColor">@color/corvio_ink</item>
     </style>
 </resources>

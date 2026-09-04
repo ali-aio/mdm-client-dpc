@@ -1,4 +1,4 @@
-package com.aioapp.mdm.agent
+package com.corvio.agent
 
 import android.app.admin.DevicePolicyManager
 import android.content.ComponentName

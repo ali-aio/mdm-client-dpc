@@ -1,7 +1,7 @@
-package com.aioapp.mdm.agent.net
+package com.corvio.agent.net
 
 import android.util.Log
-import com.aioapp.mdm.agent.AgentConfig
+import com.corvio.agent.AgentConfig
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request

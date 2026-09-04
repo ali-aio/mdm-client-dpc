@@ -1,4 +1,4 @@
-package com.aioapp.mdm.agent
+package com.corvio.agent
 
 import android.content.Context
 

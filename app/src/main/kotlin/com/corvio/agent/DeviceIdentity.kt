@@ -1,4 +1,4 @@
-package com.aioapp.mdm.agent
+package com.corvio.agent
 
 import android.annotation.SuppressLint
 import android.content.Context

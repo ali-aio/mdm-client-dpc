@@ -1,4 +1,4 @@
-package com.aioapp.mdm.agent.capture
+package com.corvio.agent.capture
 
 import android.app.Service
 import android.content.Context
@@ -20,9 +20,9 @@ import android.util.Log
 import android.view.Surface
 import android.view.WindowManager
 import androidx.core.app.NotificationCompat
-import com.aioapp.mdm.agent.AgentApp
-import com.aioapp.mdm.agent.AgentBus
-import com.aioapp.mdm.agent.R
+import com.corvio.agent.AgentApp
+import com.corvio.agent.AgentBus
+import com.corvio.agent.R
 import okio.ByteString.Companion.toByteString
 
 /**
@@ -192,8 +192,8 @@ class ScreenCaptureService : Service() {
     companion object {
         private const val TAG = "ScreenCapture"
         private const val NOTIF_ID = 1002
-        const val ACTION_START = "com.aioapp.mdm.agent.CAPTURE_START"
-        const val ACTION_STOP = "com.aioapp.mdm.agent.CAPTURE_STOP"
+        const val ACTION_START = "com.corvio.agent.CAPTURE_START"
+        const val ACTION_STOP = "com.corvio.agent.CAPTURE_STOP"
         const val EXTRA_RESULT_CODE = "result_code"
         const val EXTRA_DATA = "data"
         const val EXTRA_CODEC = "codec"

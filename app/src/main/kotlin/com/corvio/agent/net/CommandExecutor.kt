@@ -1,12 +1,12 @@
-package com.aioapp.mdm.agent.net
+package com.corvio.agent.net
 
 import android.content.Context
 import android.util.Log
-import com.aioapp.mdm.agent.AgentConfig
-import com.aioapp.mdm.agent.DeviceOwner
-import com.aioapp.mdm.agent.device.ApkInstaller
-import com.aioapp.mdm.agent.device.KioskManager
-import com.aioapp.mdm.agent.device.ShellSession
+import com.corvio.agent.AgentConfig
+import com.corvio.agent.DeviceOwner
+import com.corvio.agent.device.ApkInstaller
+import com.corvio.agent.device.KioskManager
+import com.corvio.agent.device.ShellSession
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch

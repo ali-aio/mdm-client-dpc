@@ -1,4 +1,4 @@
-package com.aioapp.mdm.agent
+package com.corvio.agent
 
 /**
  * What this DPC agent can and cannot do, reported to the server on checkin as

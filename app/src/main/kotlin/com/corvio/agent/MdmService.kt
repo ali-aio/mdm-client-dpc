@@ -1,4 +1,4 @@
-package com.aioapp.mdm.agent
+package com.corvio.agent
 
 import android.app.Notification
 import android.content.Context
@@ -9,14 +9,14 @@ import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.lifecycle.LifecycleService
 import androidx.lifecycle.lifecycleScope
-import com.aioapp.mdm.agent.capture.ScreenCaptureConsentActivity
-import com.aioapp.mdm.agent.capture.ScreenCaptureService
-import com.aioapp.mdm.agent.device.LogcatManager
-import com.aioapp.mdm.agent.net.Acker
-import com.aioapp.mdm.agent.net.ApiClient
-import com.aioapp.mdm.agent.net.CommandExecutor
-import com.aioapp.mdm.agent.net.Telemetry
-import com.aioapp.mdm.agent.net.WsClient
+import com.corvio.agent.capture.ScreenCaptureConsentActivity
+import com.corvio.agent.capture.ScreenCaptureService
+import com.corvio.agent.device.LogcatManager
+import com.corvio.agent.net.Acker
+import com.corvio.agent.net.ApiClient
+import com.corvio.agent.net.CommandExecutor
+import com.corvio.agent.net.Telemetry
+import com.corvio.agent.net.WsClient
 import okio.ByteString
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job

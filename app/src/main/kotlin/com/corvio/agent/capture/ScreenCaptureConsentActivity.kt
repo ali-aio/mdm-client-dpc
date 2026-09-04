@@ -1,4 +1,4 @@
-package com.aioapp.mdm.agent.capture
+package com.corvio.agent.capture
 
 import android.app.Activity
 import android.content.Context

@@ -1,10 +1,10 @@
-package com.aioapp.mdm.agent.device
+package com.corvio.agent.device
 
 import android.app.admin.DevicePolicyManager
 import android.content.Context
 import android.content.Intent
 import android.util.Log
-import com.aioapp.mdm.agent.DeviceOwner
+import com.corvio.agent.DeviceOwner
 
 /**
  * Kiosk / lock-task control via Device Owner APIs. The allowlist ([setLockTaskPackages]) is the

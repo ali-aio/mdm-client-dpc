@@ -1,4 +1,4 @@
-package com.aioapp.mdm.agent.device
+package com.corvio.agent.device
 
 import android.content.BroadcastReceiver
 import android.content.Context
@@ -7,7 +7,7 @@ import android.content.IntentFilter
 import android.content.pm.PackageInstaller
 import android.os.Build
 import androidx.core.content.ContextCompat
-import com.aioapp.mdm.agent.AgentConfig
+import com.corvio.agent.AgentConfig
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.File
@@ -134,6 +134,6 @@ class ApkInstaller(private val ctx: Context, config: AgentConfig) {
     }
 
     companion object {
-        private const val ACTION_INSTALL_RESULT = "com.aioapp.mdm.agent.INSTALL_RESULT"
+        private const val ACTION_INSTALL_RESULT = "com.corvio.agent.INSTALL_RESULT"
     }
 }

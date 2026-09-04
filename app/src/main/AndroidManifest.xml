@@ -42,7 +42,7 @@
         </activity>
 
         <!-- Device Owner / Device Admin. DO component name used by adb:
-             adb shell dpm set-device-owner com.aioapp.mdm.agent/.MdmDeviceAdminReceiver -->
+             adb shell dpm set-device-owner com.corvio.agent/.MdmDeviceAdminReceiver -->
         <receiver
             android:name=".MdmDeviceAdminReceiver"
             android:description="@string/admin_description"

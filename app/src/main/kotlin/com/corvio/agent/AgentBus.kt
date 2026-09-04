@@ -1,6 +1,6 @@
-package com.aioapp.mdm.agent
+package com.corvio.agent
 
-import com.aioapp.mdm.agent.net.Acker
+import com.corvio.agent.net.Acker
 import org.json.JSONObject
 
 /**

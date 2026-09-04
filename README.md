@@ -1,10 +1,10 @@
-# AIO MDM Agent (Device Owner DPC)
+# Corvio Agent (Device Owner DPC)
 
 Standalone Android app that installs as a normal APK, becomes **Device Owner** via Android
-Enterprise provisioning, and manages the device by talking to the existing AIO MDM Go server over
+Enterprise provisioning, and manages the device by talking to the existing Corvio MDM Go server over
 the **same WebSocket + HTTP contract** as the AOSP system-app client.
 
-Unlike the system app (`com.aioapp.mdm`, which must be baked into a platform-signed AOSP image),
+Unlike the platform-signed AOSP system-app client ( which must be baked into a platform-signed AOSP image),
 this agent runs on a **stock device** (e.g. a Pixel 6). It uses `DevicePolicyManager` (Device
 Owner) instead of `android.uid.system`, so a few capabilities degrade — see the capability matrix
 in the plan. It advertises `agent_type=dpc` + its capability list on checkin so the dashboard can
@@ -38,12 +38,12 @@ succeed.
 
 ```bash
 adb install -r app/build/outputs/apk/debug/app-debug.apk
-adb shell dpm set-device-owner com.aioapp.mdm.agent/.MdmDeviceAdminReceiver
+adb shell dpm set-device-owner com.corvio.agent/.MdmDeviceAdminReceiver
 # reach a locally-running server from the device:
 adb reverse tcp:8080 tcp:8080
 ```
 
-Open the **AIO MDM Agent** app, set the server URL (`http://localhost:8080` with the reverse
+Open the **Corvio** app, set the server URL (`http://localhost:8080` with the reverse
 above) + device API key, and tap **Save & connect**.
 
 > Note: on GMS devices, Google Play Protect gates non-allowlisted custom DPCs at *provisioning*
@@ -55,7 +55,7 @@ above) + device API key, and tap **Save & connect**.
 ```
 app/src/main/
   AndroidManifest.xml
-  kotlin/com/aioapp/mdm/agent/
+  kotlin/com/corvio/agent/
     AgentApp.kt              notification channels
     AgentConfig.kt           prefs-backed server URL + API key (device-protected storage)
     Capabilities.kt          what this DPC can/can't do (reported on checkin)

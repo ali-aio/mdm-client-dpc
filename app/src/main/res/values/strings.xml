@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">AIO MDM Agent</string>
-    <string name="admin_description">Allows AIO MDM to manage this device (kiosk, apps, configuration, reboot, and remote support).</string>
+    <string name="app_name">Corvio</string>
+    <string name="admin_description">Allows Corvio to manage this device (kiosk, apps, configuration, reboot, and remote support).</string>
 
     <!-- Onboarding -->
-    <string name="onboarding_title">AIO MDM Agent</string>
+    <string name="onboarding_title">Corvio</string>
     <string name="status_device_owner">Device Owner</string>
     <string name="status_serial">Serial</string>
     <string name="status_server">Server</string>
@@ -14,8 +14,8 @@
     <string name="action_save">Save &amp; connect</string>
     <string name="action_test">Test connection</string>
 
-    <string name="a11y_description">Lets AIO MDM deliver remote touch and navigation input during a support session.</string>
+    <string name="a11y_description">Lets Corvio deliver remote touch and navigation input during a support session.</string>
 
     <string name="do_active">Active — this app is Device Owner</string>
-    <string name="do_inactive">Not provisioned. Run:\n adb shell dpm set-device-owner com.aioapp.mdm.agent/.MdmDeviceAdminReceiver</string>
+    <string name="do_inactive">Not provisioned. Run:\n adb shell dpm set-device-owner com.corvio.agent/.MdmDeviceAdminReceiver</string>
 </resources>

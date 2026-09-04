@@ -1,4 +1,4 @@
-package com.aioapp.mdm.agent.ui
+package com.corvio.agent.ui
 
 import android.Manifest
 import android.content.pm.PackageManager
@@ -8,14 +8,14 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
-import com.aioapp.mdm.agent.AgentConfig
-import com.aioapp.mdm.agent.DeviceIdentity
-import com.aioapp.mdm.agent.DeviceOwner
-import com.aioapp.mdm.agent.MdmService
-import com.aioapp.mdm.agent.R
-import com.aioapp.mdm.agent.databinding.ActivityMainBinding
-import com.aioapp.mdm.agent.net.ApiClient
-import com.aioapp.mdm.agent.net.Telemetry
+import com.corvio.agent.AgentConfig
+import com.corvio.agent.DeviceIdentity
+import com.corvio.agent.DeviceOwner
+import com.corvio.agent.MdmService
+import com.corvio.agent.R
+import com.corvio.agent.databinding.ActivityMainBinding
+import com.corvio.agent.net.ApiClient
+import com.corvio.agent.net.Telemetry
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext

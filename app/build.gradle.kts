@@ -7,19 +7,19 @@ plugins {
 // gradle.properties / -P flags / local.properties, e.g.:
 //   ./gradlew assembleDebug -PmdmServerUrl=http://10.0.2.2:8080 -PmdmApiKey=dev-device-key
 // These are only *defaults*; the onboarding screen can override them at runtime (stored in prefs).
-val mdmServerUrl: String = (project.findProperty("mdmServerUrl") as String?) ?: "https://mdm.dev.aioapp.com"
+val mdmServerUrl: String = (project.findProperty("mdmServerUrl") as String?) ?: "https://mdm.example.com"
 val mdmApiKey: String = (project.findProperty("mdmApiKey") as String?) ?: ""
 
 android {
-    namespace = "com.aioapp.mdm.agent"
+    namespace = "com.corvio.agent"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.aioapp.mdm.agent"
+        applicationId = "com.corvio.agent"
         minSdk = 28
         targetSdk = 35
         versionCode = 1
-        versionName = "0.1.0"
+        versionName = "0.1.0-alpha.1"
 
         buildConfigField("String", "DEFAULT_SERVER_URL", "\"$mdmServerUrl\"")
         buildConfigField("String", "DEFAULT_API_KEY", "\"$mdmApiKey\"")

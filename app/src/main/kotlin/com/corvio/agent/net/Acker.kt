@@ -1,4 +1,4 @@
-package com.aioapp.mdm.agent.net
+package com.corvio.agent.net
 
 import org.json.JSONObject
 
