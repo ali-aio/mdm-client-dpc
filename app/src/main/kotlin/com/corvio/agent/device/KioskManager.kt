@@ -5,18 +5,21 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.content.pm.PackageManager
 import android.util.Log
 import com.corvio.agent.DeviceOwner
+import com.corvio.agent.kiosk.KioskHostActivity
 
 /**
- * App-lock (kiosk) control via Device Owner APIs. Locking a third-party app so the user can't
- * casually leave it takes more than the lock-task allowlist:
- *   - setLockTaskPackages    — permit the app (+ our agent) in lock task
- *   - setLockTaskFeatures(NONE) — hide home / recents / notifications / status while pinned
- *   - setStatusBarDisabled   — kill the pull-down shade + quick settings
- *   - addPersistentPreferredActivity(HOME → the app) — Home button and boot both land back in
- *     the app, so there's no way out to a launcher
- * Together these make the app the device's only surface until an admin turns the lock off.
+ * App-lock (kiosk) control via Device Owner APIs. Real, exit-resistant locking of a third-party
+ * app takes actual lock-task (screen pinning), which only an app in the task can start — so we
+ * pin our own [KioskHostActivity] (set as Home) and host the target app on top of it:
+ *   - setLockTaskPackages     — permit the target app (+ our agent) in lock task
+ *   - setLockTaskFeatures(NONE) — hide home/recents/notifications/keyguard while pinned
+ *   - setStatusBarDisabled    — kill the pull-down shade + quick settings
+ *   - addPersistentPreferredActivity(HOME → KioskHostActivity) — Home button + boot land in our
+ *     host, which startLockTask()s (disabling the nav bar) and relaunches the target
+ * The host does the pinning; this class just installs the policy and kicks it off.
  */
 class KioskManager(private val ctx: Context, private val deviceOwner: DeviceOwner) {
 
@@ -27,44 +30,46 @@ class KioskManager(private val ctx: Context, private val deviceOwner: DeviceOwne
         }
         val dpm = deviceOwner.dpm
         val admin = deviceOwner.admin
+        val host = ComponentName(ctx, KioskHostActivity::class.java)
 
         if (enabled && kioskPackage.isNotBlank()) {
+            setHostEnabled(host, true) // make our host a valid Home candidate
             dpm.setLockTaskPackages(admin, arrayOf(kioskPackage, ctx.packageName))
             runCatching { dpm.setLockTaskFeatures(admin, DevicePolicyManager.LOCK_TASK_FEATURE_NONE) }
             runCatching { dpm.setStatusBarDisabled(admin, true) }
-            setPersistentHome(kioskPackage)
-            launch(kioskPackage)
+            // Route Home (button + boot) to our pinning host.
+            val homeFilter = IntentFilter(Intent.ACTION_MAIN).apply {
+                addCategory(Intent.CATEGORY_HOME)
+                addCategory(Intent.CATEGORY_DEFAULT)
+            }
+            runCatching { dpm.addPersistentPreferredActivity(admin, homeFilter, host) }
+                .onFailure { Log.w(TAG, "persistent home failed: ${it.message}") }
+            // Kick it off now.
+            runCatching {
+                ctx.startActivity(Intent(ctx, KioskHostActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            }
             Log.i(TAG, "app lock ENABLED for $kioskPackage")
         } else {
-            // Fully release: drop the Home override, re-enable the status bar, clear the allowlist.
-            if (kioskPackage.isNotBlank()) {
-                runCatching { dpm.clearPackagePersistentPreferredActivities(admin, kioskPackage) }
-            }
-            runCatching { dpm.setStatusBarDisabled(admin, false) }
+            // Emptying the allowlist makes the system drop out of lock task automatically.
             dpm.setLockTaskPackages(admin, emptyArray())
+            runCatching { dpm.setStatusBarDisabled(admin, false) }
+            runCatching { dpm.clearPackagePersistentPreferredActivities(admin, ctx.packageName) }
+            // Bring the host forward so it exits lock task + returns to the onboarding screen,
+            // then stop it being a Home candidate.
+            runCatching {
+                ctx.startActivity(Intent(ctx, KioskHostActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            }
+            setHostEnabled(host, false)
             Log.i(TAG, "app lock DISABLED")
         }
     }
 
-    /** Make [pkg]'s launcher activity the persistent Home so Home/Back can't leave it. */
-    private fun setPersistentHome(pkg: String) {
-        val comp = ctx.packageManager.getLaunchIntentForPackage(pkg)?.component ?: run {
-            Log.w(TAG, "no launcher activity for $pkg; skipping persistent home")
-            return
-        }
-        val filter = IntentFilter(Intent.ACTION_MAIN).apply {
-            addCategory(Intent.CATEGORY_HOME)
-            addCategory(Intent.CATEGORY_DEFAULT)
-        }
-        runCatching { deviceOwner.dpm.addPersistentPreferredActivity(deviceOwner.admin, filter, comp) }
-            .onFailure { Log.w(TAG, "persistent home failed: ${it.message}") }
-    }
-
-    private fun launch(pkg: String) {
-        val intent = ctx.packageManager.getLaunchIntentForPackage(pkg) ?: return
-        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        runCatching { ctx.startActivity(intent) }
-            .onFailure { Log.w(TAG, "failed to launch kiosk app: ${it.message}") }
+    private fun setHostEnabled(host: ComponentName, on: Boolean) {
+        val state = if (on) PackageManager.COMPONENT_ENABLED_STATE_ENABLED
+        else PackageManager.COMPONENT_ENABLED_STATE_DISABLED
+        runCatching {
+            ctx.packageManager.setComponentEnabledSetting(host, state, PackageManager.DONT_KILL_APP)
+        }.onFailure { Log.w(TAG, "toggle host component failed: ${it.message}") }
     }
 
     companion object {

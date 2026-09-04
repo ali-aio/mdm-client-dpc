@@ -41,6 +41,23 @@
             </intent-filter>
         </activity>
 
+        <!-- App-lock host: becomes Home + pins (startLockTask) while the lock is active.
+             Disabled by default so it's not a Home candidate until KioskManager enables it. -->
+        <activity
+            android:name=".kiosk.KioskHostActivity"
+            android:enabled="false"
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:excludeFromRecents="true"
+            android:stateNotNeeded="true"
+            android:theme="@android:style/Theme.Black.NoTitleBar.Fullscreen">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.HOME" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
+
         <!-- Device Owner / Device Admin. DO component name used by adb:
              adb shell dpm set-device-owner com.corvio.agent/.MdmDeviceAdminReceiver -->
         <receiver
