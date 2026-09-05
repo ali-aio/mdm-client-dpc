@@ -22,9 +22,34 @@ class AgentConfig private constructor(private val ctx: Context) {
         get() = prefs.getString(KEY_API_KEY, BuildConfig.DEFAULT_API_KEY)!!
         set(value) = prefs.edit().putString(KEY_API_KEY, value.trim()).apply()
 
+    /**
+     * Pending enrollment token from a QR/zero-touch provisioning payload (or manual entry).
+     * Exchanged once at POST /api/v1/enroll for a per-device key, then cleared — so a stolen
+     * QR code can be revoked server-side without rotating the whole fleet's credentials.
+     */
+    var enrollToken: String
+        get() = prefs.getString(KEY_ENROLL_TOKEN, "")!!
+        set(value) = prefs.edit().putString(KEY_ENROLL_TOKEN, value.trim()).apply()
+
     /** True once the user has saved a server URL + key (onboarding complete enough to connect). */
     val isConfigured: Boolean
         get() = serverUrl.isNotBlank() && apiKey.isNotBlank()
+
+    /** True when we have a server + enrollment token but no device key yet: enroll first. */
+    val needsEnrollment: Boolean
+        get() = serverUrl.isNotBlank() && apiKey.isBlank() && enrollToken.isNotBlank()
+
+    /**
+     * Seed config from a managed-provisioning admin-extras bundle (QR / zero-touch).
+     * Recognised keys: `server_url`, `enroll_token`, and `api_key` (direct shared-key
+     * fallback for closed setups without enrollment profiles). Ignores blanks so a
+     * partial bundle can't wipe out already-working config.
+     */
+    fun seedFromProvisioningExtras(extras: android.os.PersistableBundle) {
+        extras.getString("server_url")?.takeIf { it.isNotBlank() }?.let { serverUrl = it }
+        extras.getString("enroll_token")?.takeIf { it.isNotBlank() }?.let { enrollToken = it }
+        extras.getString("api_key")?.takeIf { it.isNotBlank() }?.let { apiKey = it }
+    }
 
     // ---- Server-pushed config (checkin `config` object / WS `config` frame) ----
 
@@ -76,6 +101,7 @@ class AgentConfig private constructor(private val ctx: Context) {
         private const val PREFS = "mdm_agent"
         private const val KEY_SERVER_URL = "server_url"
         private const val KEY_API_KEY = "api_key"
+        private const val KEY_ENROLL_TOKEN = "enroll_token"
         private const val KEY_CHECKIN_INTERVAL = "checkin_interval"
         private const val KEY_KIOSK_ENABLED = "kiosk_enabled"
         private const val KEY_KIOSK_PACKAGE = "kiosk_package"

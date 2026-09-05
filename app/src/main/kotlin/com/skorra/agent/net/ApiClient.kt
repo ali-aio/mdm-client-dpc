@@ -26,6 +26,32 @@ class ApiClient(private val config: AgentConfig) {
     fun checkin(payload: JSONObject): JSONObject? =
         postJson("/api/v1/checkin", payload)
 
+    /**
+     * POST /api/v1/enroll — exchange a one-per-profile enrollment token for this device's own
+     * API key. Unauthenticated by design (the token IS the credential); no X-API-Key header.
+     * Returns the response ({device_key, ...}) or null on failure. A 401 means the token is
+     * invalid/revoked — the caller should surface that rather than retry forever.
+     */
+    fun enroll(token: String, identity: JSONObject): JSONObject? {
+        val payload = JSONObject(identity.toString()).put("token", token)
+        try {
+            val req = Request.Builder()
+                .url(config.apiUrl("/api/v1/enroll"))
+                .post(payload.toString().toRequestBody(JSON))
+                .build()
+            http.newCall(req).execute().use { resp ->
+                if (resp.isSuccessful) {
+                    val text = resp.body?.string().orEmpty()
+                    return if (text.isBlank()) JSONObject() else JSONObject(text)
+                }
+                Log.w(TAG, "enroll failed: HTTP ${resp.code}")
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "enroll failed: ${e.message}")
+        }
+        return null
+    }
+
     /** POST /api/v1/commands/{id}/ack */
     fun ackCommand(commandId: String, body: JSONObject): Boolean =
         postJson("/api/v1/commands/$commandId/ack", body) != null

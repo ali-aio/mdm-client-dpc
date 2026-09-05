@@ -65,14 +65,53 @@ class MdmService : LifecycleService(), WsClient.Listener, Acker {
         // Re-enforce any persisted kiosk state after a (re)boot.
         if (deviceOwner.isDeviceOwner) executor.applyConfig(JSONObject())
 
-        if (config.isConfigured) startTransport()
+        maybeStart()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         super.onStartCommand(intent, flags, startId)
-        // A restart (e.g. after Save & connect) may have added config.
-        if (config.isConfigured && !wantConnected) startTransport()
+        // A restart (e.g. after Save & connect, or provisioning extras landing) may have added config.
+        if (!wantConnected) maybeStart()
         return START_STICKY
+    }
+
+    /** Connect if configured; if we only hold an enrollment token, exchange it first. */
+    private fun maybeStart() {
+        when {
+            config.isConfigured -> startTransport()
+            config.needsEnrollment -> enrollThenStart()
+        }
+    }
+
+    @Volatile private var enrolling = false
+
+    private fun enrollThenStart() {
+        if (enrolling) return
+        enrolling = true
+        lifecycleScope.launch(Dispatchers.IO) {
+            var attempt = 0
+            while (isActive && config.needsEnrollment) {
+                val identity = JSONObject()
+                    .put("serial", serial)
+                    .put("product", DeviceIdentity.product())
+                    .put("model", Build.MODEL)
+                    .put("os_version", Build.VERSION.RELEASE ?: "")
+                val resp = api.enroll(config.enrollToken, identity)
+                val key = resp?.optString("device_key").orEmpty()
+                if (key.isNotBlank()) {
+                    config.apiKey = key
+                    config.enrollToken = ""
+                    Log.i(TAG, "Enrolled — device key issued")
+                    startTransport()
+                    break
+                }
+                // Server unreachable or token rejected: back off and retry (a revoked token
+                // keeps failing here, visible in the onboarding screen's status).
+                attempt++
+                delay((30_000L * attempt).coerceAtMost(300_000L))
+            }
+            enrolling = false
+        }
     }
 
     // ---- Transport lifecycle ----
