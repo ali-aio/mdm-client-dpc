@@ -57,15 +57,30 @@ class MainActivity : AppCompatActivity() {
 
     private fun save() {
         config.serverUrl = binding.inputServerUrl.text?.toString().orEmpty()
-        config.apiKey = binding.inputApiKey.text?.toString().orEmpty()
+        applyCredentialField()
         MdmService.start(this)
         refreshStatus()
+    }
+
+    /**
+     * The key field accepts either a device API key or an enrollment token (server issues
+     * tokens with an "enr_" prefix). A token is stashed for MdmService to exchange for a
+     * per-device key at /api/v1/enroll; anything else is used as the API key directly.
+     */
+    private fun applyCredentialField() {
+        val cred = binding.inputApiKey.text?.toString().orEmpty().trim()
+        if (cred.startsWith("enr_")) {
+            config.enrollToken = cred
+            config.apiKey = ""
+        } else {
+            config.apiKey = cred
+        }
     }
 
     private fun testConnection() {
         // Persist current field values first so we test what's on screen.
         config.serverUrl = binding.inputServerUrl.text?.toString().orEmpty()
-        config.apiKey = binding.inputApiKey.text?.toString().orEmpty()
+        applyCredentialField()
         binding.statusConnection.text = getString(R.string.status_connection) + ": testing…"
         lifecycleScope.launch {
             val ok = withContext(Dispatchers.IO) {

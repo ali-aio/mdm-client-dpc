@@ -10,7 +10,7 @@
     <string name="status_server">Server</string>
     <string name="status_connection">Connection</string>
     <string name="label_server_url">Server URL</string>
-    <string name="label_api_key">Device API key</string>
+    <string name="label_api_key">Device API key or enrollment token</string>
     <string name="action_save">Save &amp; connect</string>
     <string name="action_test">Test connection</string>
 
