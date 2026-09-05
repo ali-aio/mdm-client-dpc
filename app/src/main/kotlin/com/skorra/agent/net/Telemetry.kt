@@ -76,6 +76,32 @@ object Telemetry {
             if (tenths != null && tenths != Int.MIN_VALUE) put("battery_temp_c", tenths / 10.0)
             if (batteryIntent != null) put("charging", isCharging(batteryIntent))
             attachLocation(ctx, this)
+            attachSecurityPosture(ctx, this)
+        }
+    }
+
+    /** Compliance signals the server's policy engine evaluates (all best-effort). */
+    private fun attachSecurityPosture(ctx: Context, extra: JSONObject) {
+        runCatching {
+            val km = ctx.getSystemService(Context.KEYGUARD_SERVICE) as android.app.KeyguardManager
+            extra.put("screen_lock_set", km.isDeviceSecure)
+        }
+        runCatching {
+            val adb = android.provider.Settings.Global.getInt(
+                ctx.contentResolver, android.provider.Settings.Global.ADB_ENABLED, 0,
+            )
+            extra.put("adb_enabled", adb == 1)
+        }
+        runCatching {
+            val dpm = ctx.getSystemService(Context.DEVICE_POLICY_SERVICE)
+                as android.app.admin.DevicePolicyManager
+            extra.put(
+                "storage_encrypted",
+                dpm.storageEncryptionStatus ==
+                    android.app.admin.DevicePolicyManager.ENCRYPTION_STATUS_ACTIVE_PER_USER ||
+                    dpm.storageEncryptionStatus ==
+                    android.app.admin.DevicePolicyManager.ENCRYPTION_STATUS_ACTIVE,
+            )
         }
     }
 
