@@ -7,6 +7,7 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.util.Log
+import com.skorra.agent.AgentConfig
 import com.skorra.agent.DeviceOwner
 import com.skorra.agent.kiosk.KioskHostActivity
 
@@ -23,7 +24,18 @@ import com.skorra.agent.kiosk.KioskHostActivity
  */
 class KioskManager(private val ctx: Context, private val deviceOwner: DeviceOwner) {
 
-    fun apply(enabled: Boolean, kioskPackage: String) {
+    /** Convenience overload reading the full kiosk state (mode/extras/browser) from config. */
+    fun apply(config: AgentConfig) {
+        val browser = config.kioskMode == "browser"
+        val active = config.kioskEnabled &&
+            (if (browser) config.kioskUrl.isNotBlank()
+             else config.kioskPackage.isNotBlank() || config.kioskExtraPackages().isNotEmpty())
+        val allowed = if (browser) emptyList()
+        else (listOf(config.kioskPackage) + config.kioskExtraPackages()).filter { it.isNotBlank() }.distinct()
+        apply(active, allowed)
+    }
+
+    fun apply(enabled: Boolean, allowedPackages: List<String>) {
         if (!deviceOwner.isDeviceOwner) {
             Log.w(TAG, "not device owner; cannot apply app lock")
             return
@@ -32,9 +44,9 @@ class KioskManager(private val ctx: Context, private val deviceOwner: DeviceOwne
         val admin = deviceOwner.admin
         val host = ComponentName(ctx, KioskHostActivity::class.java)
 
-        if (enabled && kioskPackage.isNotBlank()) {
+        if (enabled) {
             setHostEnabled(host, true) // make our host a valid Home candidate
-            dpm.setLockTaskPackages(admin, arrayOf(kioskPackage, ctx.packageName))
+            dpm.setLockTaskPackages(admin, (allowedPackages + ctx.packageName).toTypedArray())
             runCatching { dpm.setLockTaskFeatures(admin, DevicePolicyManager.LOCK_TASK_FEATURE_NONE) }
             runCatching { dpm.setStatusBarDisabled(admin, true) }
             // Route Home (button + boot) to our pinning host.
@@ -48,7 +60,7 @@ class KioskManager(private val ctx: Context, private val deviceOwner: DeviceOwne
             runCatching {
                 ctx.startActivity(Intent(ctx, KioskHostActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
             }
-            Log.i(TAG, "app lock ENABLED for $kioskPackage")
+            Log.i(TAG, "app lock ENABLED (${allowedPackages.ifEmpty { listOf("browser") }})")
         } else {
             // Emptying the allowlist makes the system drop out of lock task automatically.
             dpm.setLockTaskPackages(admin, emptyArray())

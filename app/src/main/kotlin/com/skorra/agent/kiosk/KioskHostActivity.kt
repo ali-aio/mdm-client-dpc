@@ -33,14 +33,54 @@ class KioskHostActivity : Activity() {
     override fun onResume() {
         super.onResume()
         val cfg = AgentConfig.get(this)
-        if (!cfg.kioskEnabled || cfg.kioskPackage.isBlank()) {
+        val browser = cfg.kioskMode == "browser"
+        val apps = (listOf(cfg.kioskPackage) + cfg.kioskExtraPackages())
+            .filter { it.isNotBlank() && it != packageName }.distinct()
+        val active = cfg.kioskEnabled && (if (browser) cfg.kioskUrl.isNotBlank() else apps.isNotEmpty())
+        if (!active) {
             releaseAndLeave()
             return
         }
         if (!isInLockTask()) {
             runCatching { startLockTask() }.onFailure { Log.w(TAG, "startLockTask failed: ${it.message}") }
         }
-        launchTarget(cfg.kioskPackage)
+        when {
+            browser -> startActivity(
+                Intent(this, KioskBrowserActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+            )
+            apps.size == 1 -> launchTarget(apps[0])
+            else -> showAppGrid(apps) // multi-app: Home shows a launcher grid of the allowed apps
+        }
+    }
+
+    /** Minimal launcher for multi-app kiosk: one button per allowed app, nothing else reachable. */
+    private fun showAppGrid(packages: List<String>) {
+        val pm = packageManager
+        val root = android.widget.ScrollView(this).apply { setBackgroundColor(0xFF16181C.toInt()) }
+        val col = android.widget.LinearLayout(this).apply {
+            orientation = android.widget.LinearLayout.VERTICAL
+            val pad = (24 * resources.displayMetrics.density).toInt()
+            setPadding(pad, pad * 2, pad, pad)
+        }
+        for (pkg in packages) {
+            val launch = pm.getLaunchIntentForPackage(pkg) ?: continue
+            val label = runCatching {
+                pm.getApplicationLabel(pm.getApplicationInfo(pkg, 0)).toString()
+            }.getOrDefault(pkg)
+            col.addView(android.widget.Button(this).apply {
+                text = label
+                textSize = 18f
+                isAllCaps = false
+                setOnClickListener {
+                    runCatching { startActivity(launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
+                }
+            }, android.widget.LinearLayout.LayoutParams(
+                android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT,
+            ).apply { topMargin = (12 * resources.displayMetrics.density).toInt() })
+        }
+        root.addView(col)
+        setContentView(root)
     }
 
     private fun launchTarget(pkg: String) {

@@ -70,6 +70,38 @@ class AgentConfig private constructor(private val ctx: Context) {
         get() = prefs.getString(KEY_UPDATE_POLICY, "")!!
         set(value) = prefs.edit().putString(KEY_UPDATE_POLICY, value).apply()
 
+    // ---- Kiosk modes (single-app is kioskPackage; these extend it) ----
+
+    /** "app" (lock to kioskPackage, plus kioskExtraPackages in a launcher grid) or "browser". */
+    var kioskMode: String
+        get() = prefs.getString(KEY_KIOSK_MODE, "app")!!
+        set(value) = prefs.edit().putString(KEY_KIOSK_MODE, value.ifBlank { "app" }).apply()
+
+    /** Extra allow-listed packages for multi-app kiosk (JSON array of package names). */
+    var kioskPackagesJson: String
+        get() = prefs.getString(KEY_KIOSK_PACKAGES, "[]")!!
+        set(value) = prefs.edit().putString(KEY_KIOSK_PACKAGES, value.ifBlank { "[]" }).apply()
+
+    var kioskUrl: String
+        get() = prefs.getString(KEY_KIOSK_URL, "")!!
+        set(value) = prefs.edit().putString(KEY_KIOSK_URL, value.trim()).apply()
+
+    /** Allowed URL prefixes for browser kiosk (JSON array; empty = same-origin as kioskUrl). */
+    var kioskUrlAllowJson: String
+        get() = prefs.getString(KEY_KIOSK_URL_ALLOW, "[]")!!
+        set(value) = prefs.edit().putString(KEY_KIOSK_URL_ALLOW, value.ifBlank { "[]" }).apply()
+
+    fun kioskExtraPackages(): List<String> = jsonStringList(kioskPackagesJson)
+
+    fun kioskUrlAllow(): List<String> = jsonStringList(kioskUrlAllowJson)
+
+    private fun jsonStringList(json: String): List<String> = try {
+        val arr = org.json.JSONArray(json)
+        (0 until arr.length()).mapNotNull { arr.optString(it).takeIf { s -> s.isNotBlank() } }
+    } catch (e: Exception) {
+        emptyList()
+    }
+
     /**
      * Absorb a server `config` object (from the checkin response or a WS `config` frame). Kiosk
      * enforcement itself happens in the service (Phase 2); here we just persist the desired state.
@@ -86,6 +118,10 @@ class AgentConfig private constructor(private val ctx: Context) {
         }
         if (cfg.has("kiosk_enabled")) kioskEnabled = cfg.optBoolean("kiosk_enabled", false)
         if (cfg.has("kiosk_package")) kioskPackage = cfg.optString("kiosk_package", "")
+        if (cfg.has("kiosk_mode")) kioskMode = cfg.optString("kiosk_mode", "app")
+        if (cfg.has("kiosk_packages")) kioskPackagesJson = cfg.optJSONArray("kiosk_packages")?.toString().orEmpty()
+        if (cfg.has("kiosk_url")) kioskUrl = cfg.optString("kiosk_url", "")
+        if (cfg.has("kiosk_url_allow")) kioskUrlAllowJson = cfg.optJSONArray("kiosk_url_allow")?.toString().orEmpty()
         if (cfg.has("update_policy")) {
             updatePolicyJson = cfg.optJSONObject("update_policy")?.toString().orEmpty()
         }
@@ -114,6 +150,10 @@ class AgentConfig private constructor(private val ctx: Context) {
         private const val KEY_KIOSK_ENABLED = "kiosk_enabled"
         private const val KEY_KIOSK_PACKAGE = "kiosk_package"
         private const val KEY_UPDATE_POLICY = "update_policy"
+        private const val KEY_KIOSK_MODE = "kiosk_mode"
+        private const val KEY_KIOSK_PACKAGES = "kiosk_packages"
+        private const val KEY_KIOSK_URL = "kiosk_url"
+        private const val KEY_KIOSK_URL_ALLOW = "kiosk_url_allow"
         private const val DEFAULT_CHECKIN_INTERVAL = 30
 
         @Volatile private var instance: AgentConfig? = null

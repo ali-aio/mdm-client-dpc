@@ -58,6 +58,14 @@
             </intent-filter>
         </activity>
 
+        <!-- Kiosk browser: WebView with a URL allowlist, hosted inside the pinned lock task -->
+        <activity
+            android:name=".kiosk.KioskBrowserActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:launchMode="singleTask"
+            android:theme="@android:style/Theme.Black.NoTitleBar.Fullscreen" />
+
         <!-- Device Owner / Device Admin. DO component name used by adb:
              adb shell dpm set-device-owner com.skorra.agent/.MdmDeviceAdminReceiver -->
         <receiver

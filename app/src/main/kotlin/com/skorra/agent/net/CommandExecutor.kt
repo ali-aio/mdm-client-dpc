@@ -62,7 +62,7 @@ class CommandExecutor(
     /** Apply a server `config` frame/payload (kiosk etc.). Shared by WS config messages. */
     fun applyConfig(cfg: JSONObject) {
         config.applyServerConfig(cfg)
-        kiosk.apply(config.kioskEnabled, config.kioskPackage)
+        kiosk.apply(config)
         UpdatePolicyManager.apply(deviceOwner, config.updatePolicyJson)
     }
 
