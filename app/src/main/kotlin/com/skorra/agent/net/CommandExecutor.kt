@@ -7,6 +7,7 @@ import com.skorra.agent.DeviceOwner
 import com.skorra.agent.device.ApkInstaller
 import com.skorra.agent.device.KioskManager
 import com.skorra.agent.device.ShellSession
+import com.skorra.agent.device.NetworkProvisioner
 import com.skorra.agent.device.UpdatePolicyManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -65,6 +66,7 @@ class CommandExecutor(
         kiosk.apply(config)
         UpdatePolicyManager.apply(deviceOwner, config.updatePolicyJson)
         if (config.locationEnabled) deviceOwner.ensureLocationAccess()
+        NetworkProvisioner.apply(ctx, deviceOwner, config.networkConfigJson)
     }
 
     fun cancel(commandId: String) {
