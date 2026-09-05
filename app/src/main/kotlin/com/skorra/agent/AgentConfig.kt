@@ -101,6 +101,11 @@ class AgentConfig private constructor(private val ctx: Context) {
         get() = prefs.getString(KEY_NETWORK_CONFIG, "")!!
         set(value) = prefs.edit().putString(KEY_NETWORK_CONFIG, value).apply()
 
+    /** Raw managed app configurations: [{"package": "...", "restrictions": {...}}]. */
+    var appRestrictionsJson: String
+        get() = prefs.getString(KEY_APP_RESTRICTIONS, "")!!
+        set(value) = prefs.edit().putString(KEY_APP_RESTRICTIONS, value).apply()
+
     fun kioskExtraPackages(): List<String> = jsonStringList(kioskPackagesJson)
 
     fun kioskUrlAllow(): List<String> = jsonStringList(kioskUrlAllowJson)
@@ -137,6 +142,9 @@ class AgentConfig private constructor(private val ctx: Context) {
         }
         if (cfg.has("location_enabled")) locationEnabled = cfg.optBoolean("location_enabled", false)
         if (cfg.has("network")) networkConfigJson = cfg.optJSONObject("network")?.toString().orEmpty()
+        if (cfg.has("app_restrictions")) {
+            appRestrictionsJson = cfg.optJSONArray("app_restrictions")?.toString().orEmpty()
+        }
         return intervalChanged
     }
 
@@ -168,6 +176,7 @@ class AgentConfig private constructor(private val ctx: Context) {
         private const val KEY_KIOSK_URL_ALLOW = "kiosk_url_allow"
         private const val KEY_LOCATION_ENABLED = "location_enabled"
         private const val KEY_NETWORK_CONFIG = "network_config"
+        private const val KEY_APP_RESTRICTIONS = "app_restrictions"
         private const val DEFAULT_CHECKIN_INTERVAL = 30
 
         @Volatile private var instance: AgentConfig? = null
