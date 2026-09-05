@@ -107,8 +107,10 @@ object Telemetry {
 
     /**
      * Attach the freshest last-known fix when the server has enabled location reporting and
-     * the DO-granted permission is actually in place. Passive read only — no provider wakeups,
-     * so this adds nothing to the checkin's power cost.
+     * the DO-granted permission is actually in place. Reads are passive, but when no fix
+     * exists (or it's stale) we request ONE fresh fix asynchronously — on a dedicated
+     * device nothing else ever activates the providers, so a passive-only read would
+     * never produce a location at all. The fresh fix lands in a later checkin.
      */
     private fun attachLocation(ctx: Context, extra: JSONObject) {
         if (!com.skorra.agent.AgentConfig.get(ctx).locationEnabled) return
@@ -119,12 +121,41 @@ object Telemetry {
             val lm = ctx.getSystemService(Context.LOCATION_SERVICE) as android.location.LocationManager
             val best = lm.allProviders
                 .mapNotNull { runCatching { lm.getLastKnownLocation(it) }.getOrNull() }
-                .maxByOrNull { it.time } ?: return
+                .maxByOrNull { it.time }
+            val ageMs = best?.let { System.currentTimeMillis() - it.time } ?: Long.MAX_VALUE
+            if (best == null || ageMs > STALE_FIX_MS) nudgeLocation(ctx, lm)
+            if (best == null) return
             extra.put("location_lat", best.latitude)
             extra.put("location_lon", best.longitude)
             extra.put("location_acc_m", best.accuracy.toDouble())
-            extra.put("location_age_s", ((System.currentTimeMillis() - best.time) / 1000).coerceAtLeast(0))
+            extra.put("location_age_s", (ageMs / 1000).coerceAtLeast(0))
         }
+    }
+
+    private const val STALE_FIX_MS = 10 * 60_000L
+    @Volatile private var locationRequestInFlight = false
+
+    /** Request one fresh fix (GPS, falling back to network) without blocking the checkin. */
+    private fun nudgeLocation(ctx: Context, lm: android.location.LocationManager) {
+        if (locationRequestInFlight) return
+        locationRequestInFlight = true
+        runCatching {
+            val provider = when {
+                lm.isProviderEnabled(android.location.LocationManager.GPS_PROVIDER) ->
+                    android.location.LocationManager.GPS_PROVIDER
+                lm.isProviderEnabled(android.location.LocationManager.NETWORK_PROVIDER) ->
+                    android.location.LocationManager.NETWORK_PROVIDER
+                else -> { locationRequestInFlight = false; return }
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                lm.getCurrentLocation(provider, null, ctx.mainExecutor) {
+                    locationRequestInFlight = false // fix (or null) cached by the provider
+                }
+            } else {
+                @Suppress("DEPRECATION")
+                lm.requestSingleUpdate(provider, { locationRequestInFlight = false }, null)
+            }
+        }.onFailure { locationRequestInFlight = false }
     }
 
     private fun isCharging(batteryIntent: Intent): Boolean {
