@@ -64,6 +64,7 @@ class CommandExecutor(
         config.applyServerConfig(cfg)
         kiosk.apply(config)
         UpdatePolicyManager.apply(deviceOwner, config.updatePolicyJson)
+        if (config.locationEnabled) deviceOwner.ensureLocationAccess()
     }
 
     fun cancel(commandId: String) {

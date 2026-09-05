@@ -75,6 +75,29 @@ object Telemetry {
             val tenths = batteryIntent?.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, Int.MIN_VALUE)
             if (tenths != null && tenths != Int.MIN_VALUE) put("battery_temp_c", tenths / 10.0)
             if (batteryIntent != null) put("charging", isCharging(batteryIntent))
+            attachLocation(ctx, this)
+        }
+    }
+
+    /**
+     * Attach the freshest last-known fix when the server has enabled location reporting and
+     * the DO-granted permission is actually in place. Passive read only — no provider wakeups,
+     * so this adds nothing to the checkin's power cost.
+     */
+    private fun attachLocation(ctx: Context, extra: JSONObject) {
+        if (!com.skorra.agent.AgentConfig.get(ctx).locationEnabled) return
+        if (ctx.checkSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION) !=
+            android.content.pm.PackageManager.PERMISSION_GRANTED
+        ) return
+        runCatching {
+            val lm = ctx.getSystemService(Context.LOCATION_SERVICE) as android.location.LocationManager
+            val best = lm.allProviders
+                .mapNotNull { runCatching { lm.getLastKnownLocation(it) }.getOrNull() }
+                .maxByOrNull { it.time } ?: return
+            extra.put("location_lat", best.latitude)
+            extra.put("location_lon", best.longitude)
+            extra.put("location_acc_m", best.accuracy.toDouble())
+            extra.put("location_age_s", ((System.currentTimeMillis() - best.time) / 1000).coerceAtLeast(0))
         }
     }
 

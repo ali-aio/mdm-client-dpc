@@ -21,4 +21,27 @@ class DeviceOwner(private val ctx: Context) {
 
     val isAdminActive: Boolean
         get() = dpm.isAdminActive(admin)
+
+    /**
+     * Self-grant location runtime permissions via Device Owner policy (no user prompt),
+     * and force location services on. Called when the server enables location reporting.
+     */
+    fun ensureLocationAccess() {
+        if (!isDeviceOwner) return
+        val pkg = ctx.packageName
+        for (perm in arrayOf(
+            android.Manifest.permission.ACCESS_COARSE_LOCATION,
+            android.Manifest.permission.ACCESS_FINE_LOCATION,
+            android.Manifest.permission.ACCESS_BACKGROUND_LOCATION,
+        )) {
+            runCatching {
+                dpm.setPermissionGrantState(
+                    admin, pkg, perm, DevicePolicyManager.PERMISSION_GRANT_STATE_GRANTED,
+                )
+            }
+        }
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+            runCatching { dpm.setLocationEnabled(admin, true) }
+        }
+    }
 }
