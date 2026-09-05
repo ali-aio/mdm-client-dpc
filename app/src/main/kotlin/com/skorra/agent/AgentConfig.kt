@@ -65,6 +65,11 @@ class AgentConfig private constructor(private val ctx: Context) {
         get() = prefs.getString(KEY_KIOSK_PACKAGE, "")!!
         set(value) = prefs.edit().putString(KEY_KIOSK_PACKAGE, value).apply()
 
+    /** Raw server `update_policy` object (JSON string, "" = none) — persisted so boot re-applies it. */
+    var updatePolicyJson: String
+        get() = prefs.getString(KEY_UPDATE_POLICY, "")!!
+        set(value) = prefs.edit().putString(KEY_UPDATE_POLICY, value).apply()
+
     /**
      * Absorb a server `config` object (from the checkin response or a WS `config` frame). Kiosk
      * enforcement itself happens in the service (Phase 2); here we just persist the desired state.
@@ -81,6 +86,9 @@ class AgentConfig private constructor(private val ctx: Context) {
         }
         if (cfg.has("kiosk_enabled")) kioskEnabled = cfg.optBoolean("kiosk_enabled", false)
         if (cfg.has("kiosk_package")) kioskPackage = cfg.optString("kiosk_package", "")
+        if (cfg.has("update_policy")) {
+            updatePolicyJson = cfg.optJSONObject("update_policy")?.toString().orEmpty()
+        }
         return intervalChanged
     }
 
@@ -105,6 +113,7 @@ class AgentConfig private constructor(private val ctx: Context) {
         private const val KEY_CHECKIN_INTERVAL = "checkin_interval"
         private const val KEY_KIOSK_ENABLED = "kiosk_enabled"
         private const val KEY_KIOSK_PACKAGE = "kiosk_package"
+        private const val KEY_UPDATE_POLICY = "update_policy"
         private const val DEFAULT_CHECKIN_INTERVAL = 30
 
         @Volatile private var instance: AgentConfig? = null

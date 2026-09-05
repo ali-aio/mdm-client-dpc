@@ -7,6 +7,7 @@ import com.skorra.agent.DeviceOwner
 import com.skorra.agent.device.ApkInstaller
 import com.skorra.agent.device.KioskManager
 import com.skorra.agent.device.ShellSession
+import com.skorra.agent.device.UpdatePolicyManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -62,6 +63,7 @@ class CommandExecutor(
     fun applyConfig(cfg: JSONObject) {
         config.applyServerConfig(cfg)
         kiosk.apply(config.kioskEnabled, config.kioskPackage)
+        UpdatePolicyManager.apply(deviceOwner, config.updatePolicyJson)
     }
 
     fun cancel(commandId: String) {
