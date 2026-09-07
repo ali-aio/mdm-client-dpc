@@ -23,6 +23,22 @@ class DeviceOwner(private val ctx: Context) {
         get() = dpm.isAdminActive(admin)
 
     /**
+     * Self-grant READ_PHONE_STATE so Build.getSerial() returns the real hardware serial —
+     * the same identifier printed on the device label, and stable across factory resets
+     * (ANDROID_ID is not). Called before the first serial resolution at service start.
+     */
+    fun ensureIdentityAccess() {
+        if (!isDeviceOwner) return
+        runCatching {
+            dpm.setPermissionGrantState(
+                admin, ctx.packageName,
+                android.Manifest.permission.READ_PHONE_STATE,
+                DevicePolicyManager.PERMISSION_GRANT_STATE_GRANTED,
+            )
+        }
+    }
+
+    /**
      * Self-grant location runtime permissions via Device Owner policy (no user prompt),
      * and force location services on. Called when the server enables location reporting.
      */

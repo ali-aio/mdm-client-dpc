@@ -54,6 +54,7 @@ class MdmService : LifecycleService(), WsClient.Listener, Acker {
         api = ApiClient(config)
         ws = WsClient(config, this)
         executor = CommandExecutor(this, deviceOwner, this, lifecycleScope)
+        deviceOwner.ensureIdentityAccess() // grant READ_PHONE_STATE before resolving the serial
         serial = DeviceIdentity.serial(this)
         logcat = LogcatManager(this, serial)
 

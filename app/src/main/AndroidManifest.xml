@@ -8,6 +8,10 @@
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
 
+    <!-- Hardware serial (Build.getSerial) so devices identify by the label serial like the
+         in-house fleet; the Device Owner self-grants this at service start -->
+    <uses-permission android:name="android.permission.READ_PHONE_STATE" />
+
     <!-- Location telemetry (runtime grants are self-issued via Device Owner policy
          when the server enables location reporting; nothing is collected otherwise) -->
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
