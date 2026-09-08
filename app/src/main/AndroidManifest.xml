@@ -52,6 +52,30 @@
             </intent-filter>
         </activity>
 
+        <!-- Managed provisioning (QR / zero-touch) on Android 12+: the setup wizard asks
+             the DPC for its provisioning mode, then hands over for policy compliance
+             once it is Device Owner. Both return at once; there is no on-device UI. -->
+        <activity
+            android:name=".provisioning.ProvisioningModeActivity"
+            android:exported="true"
+            android:permission="android.permission.BIND_DEVICE_ADMIN"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar">
+            <intent-filter>
+                <action android:name="android.app.action.GET_PROVISIONING_MODE" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
+        <activity
+            android:name=".provisioning.PolicyComplianceActivity"
+            android:exported="true"
+            android:permission="android.permission.BIND_DEVICE_ADMIN"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar">
+            <intent-filter>
+                <action android:name="android.app.action.ADMIN_POLICY_COMPLIANCE" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
+
         <!-- App-lock host: becomes Home + pins (startLockTask) while the lock is active.
              Disabled by default so it's not a Home candidate until KioskManager enables it. -->
         <activity
