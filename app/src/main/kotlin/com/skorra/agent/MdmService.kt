@@ -102,7 +102,17 @@ class MdmService : LifecycleService(), WsClient.Listener, Acker {
                 if (key.isNotBlank()) {
                     config.apiKey = key
                     config.enrollToken = ""
-                    Log.i(TAG, "Enrolled — device key issued")
+                    // Where the device landed, per the server (profile intent): class, site,
+                    // group. Empty fields mean the profile did not set them.
+                    val r = resp ?: JSONObject() // non-null here: the key came out of it
+                    val parts = mutableListOf(if (r.optBoolean("re_enrolled")) "Re-enrolled" else "Enrolled")
+                    r.optString("device_class").takeIf { it.isNotBlank() }?.let { parts += it.uppercase() }
+                    r.optString("site").takeIf { it.isNotBlank() }?.let { parts += it }
+                    r.optString("group").takeIf { it.isNotBlank() }?.let { parts += it }
+                    r.optString("profile").takeIf { it.isNotBlank() }?.let { parts += "via $it" }
+                    if (!r.optBoolean("onboarded", true)) parts += "awaiting a site on the dashboard"
+                    config.enrollSummary = parts.joinToString(" · ")
+                    Log.i(TAG, "Enrolled — device key issued (${config.enrollSummary})")
                     startTransport()
                     break
                 }

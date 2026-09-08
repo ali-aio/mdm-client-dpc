@@ -59,6 +59,9 @@ object Telemetry {
         return JSONObject().apply {
             put("agent_type", Capabilities.AGENT_TYPE)
             put("capabilities", JSONArray(Capabilities.supported))
+            // Degraded = works with limits (consent, reduced scope). The dashboard shows
+            // these as "limited" instead of hiding them.
+            put("capabilities_degraded", JSONArray(Capabilities.degraded))
             put("model", Build.MODEL)
             put("manufacturer", Build.MANUFACTURER)
             put("android_release", Build.VERSION.RELEASE)

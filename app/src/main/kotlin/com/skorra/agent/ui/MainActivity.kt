@@ -100,6 +100,9 @@ class MainActivity : AppCompatActivity() {
         binding.statusSerial.text = getString(R.string.status_serial) + ": " + serial
         binding.statusConnection.text = getString(R.string.status_server) + ": " +
             (config.serverUrl.ifBlank { "—" })
+        val summary = config.enrollSummary
+        binding.statusEnrollment.visibility = if (summary.isBlank()) android.view.View.GONE else android.view.View.VISIBLE
+        binding.statusEnrollment.text = getString(R.string.status_enrollment) + ": " + summary
     }
 
     private fun maybeRequestNotifPermission() {

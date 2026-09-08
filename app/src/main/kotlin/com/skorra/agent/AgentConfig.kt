@@ -31,6 +31,14 @@ class AgentConfig private constructor(private val ctx: Context) {
         get() = prefs.getString(KEY_ENROLL_TOKEN, "")!!
         set(value) = prefs.edit().putString(KEY_ENROLL_TOKEN, value.trim()).apply()
 
+    /**
+     * What the server said when this device enrolled ("Enrolled · MPOS · Bayside Pizza"),
+     * shown on the status screen so the tech knows the device landed where intended.
+     */
+    var enrollSummary: String
+        get() = prefs.getString(KEY_ENROLL_SUMMARY, "")!!
+        set(value) = prefs.edit().putString(KEY_ENROLL_SUMMARY, value.trim()).apply()
+
     /** True once the user has saved a server URL + key (onboarding complete enough to connect). */
     val isConfigured: Boolean
         get() = serverUrl.isNotBlank() && apiKey.isNotBlank()
@@ -166,6 +174,7 @@ class AgentConfig private constructor(private val ctx: Context) {
         private const val KEY_SERVER_URL = "server_url"
         private const val KEY_API_KEY = "api_key"
         private const val KEY_ENROLL_TOKEN = "enroll_token"
+        private const val KEY_ENROLL_SUMMARY = "enroll_summary"
         private const val KEY_CHECKIN_INTERVAL = "checkin_interval"
         private const val KEY_KIOSK_ENABLED = "kiosk_enabled"
         private const val KEY_KIOSK_PACKAGE = "kiosk_package"

@@ -39,8 +39,16 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:paddingVertical="4dp"
-            android:paddingBottom="16dp"
             android:textSize="14sp" />
+
+        <TextView
+            android:id="@+id/statusEnrollment"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:paddingVertical="4dp"
+            android:paddingBottom="16dp"
+            android:textSize="14sp"
+            android:visibility="gone" />
 
         <com.google.android.material.textfield.TextInputLayout
             android:layout_width="match_parent"
