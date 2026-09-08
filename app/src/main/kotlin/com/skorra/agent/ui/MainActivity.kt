@@ -3,6 +3,7 @@ package com.skorra.agent.ui
 import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Build
+import android.content.Intent
 import android.os.Bundle
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
@@ -48,6 +49,33 @@ class MainActivity : AppCompatActivity() {
         binding.buttonTest.setOnClickListener { testConnection() }
 
         maybeRequestNotifPermission()
+        applyLaunchExtras(intent)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        applyLaunchExtras(intent)
+    }
+
+    /**
+     * Hands-free enrollment over adb (camera-less kiosks, bulk provisioning):
+     *   adb shell am start -n com.skorra.agent/.ui.MainActivity \
+     *       --es server_url https://mdm.example.com --es enroll_token enr_…
+     * Seeds the config from the extras and starts the agent, which exchanges the token
+     * for a device key. Nothing to type on the device.
+     */
+    private fun applyLaunchExtras(intent: Intent?) {
+        val server = intent?.getStringExtra("server_url")?.trim().orEmpty()
+        val token = intent?.getStringExtra("enroll_token")?.trim().orEmpty()
+        val key = intent?.getStringExtra("api_key")?.trim().orEmpty()
+        if (server.isEmpty() && token.isEmpty() && key.isEmpty()) return
+        if (server.isNotEmpty()) config.serverUrl = server
+        if (token.isNotEmpty()) { config.enrollToken = token; config.apiKey = "" }
+        if (key.isNotEmpty()) config.apiKey = key
+        binding.inputServerUrl.setText(config.serverUrl)
+        binding.inputApiKey.setText(if (token.isNotEmpty()) token else config.apiKey)
+        MdmService.start(this)
+        refreshStatus()
     }
 
     override fun onResume() {
