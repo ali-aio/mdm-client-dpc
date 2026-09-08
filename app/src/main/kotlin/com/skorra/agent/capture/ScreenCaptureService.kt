@@ -244,7 +244,7 @@ class ScreenCaptureService : Service() {
 
     private fun goForeground() {
         val notif = NotificationCompat.Builder(this, AgentApp.CHANNEL_STATUS)
-            .setSmallIcon(R.drawable.ic_launcher)
+            .setSmallIcon(R.drawable.ic_launcher_foreground)
             .setContentTitle(getString(R.string.app_name))
             .setContentText("Screen sharing active")
             .setOngoing(true)

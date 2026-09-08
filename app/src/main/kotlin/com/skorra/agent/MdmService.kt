@@ -274,7 +274,7 @@ class MdmService : LifecycleService(), WsClient.Listener, Acker {
     private fun buildNotification(): Notification {
         val text = if (deviceOwner.isDeviceOwner) "Managed device — agent active" else "Agent running (not provisioned)"
         return NotificationCompat.Builder(this, AgentApp.CHANNEL_STATUS)
-            .setSmallIcon(R.drawable.ic_launcher)
+            .setSmallIcon(R.drawable.ic_launcher_foreground)
             .setContentTitle(getString(R.string.app_name))
             .setContentText(text)
             .setOngoing(true)
