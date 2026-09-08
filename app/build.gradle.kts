@@ -30,6 +30,20 @@ android {
         viewBinding = true
     }
 
+    // Release signing from the environment (KEYSTORE_FILE / KEYSTORE_PASS / KEY_ALIAS /
+    // KEY_PASS); without them the release build is unsigned. The key must never change:
+    // Android only updates an app whose new APK is signed with the same certificate.
+    signingConfigs {
+        create("release") {
+            val ks = System.getenv("KEYSTORE_FILE")
+            if (ks != null) {
+                storeFile = file(ks)
+                storePassword = System.getenv("KEYSTORE_PASS")
+                keyAlias = System.getenv("KEY_ALIAS") ?: "skorra"
+                keyPassword = System.getenv("KEY_PASS") ?: System.getenv("KEYSTORE_PASS")
+            }
+        }
+    }
     buildTypes {
         debug {
             isMinifyEnabled = false
@@ -37,6 +51,7 @@ android {
             versionNameSuffix = "-debug"
         }
         release {
+            if (System.getenv("KEYSTORE_FILE") != null) signingConfig = signingConfigs.getByName("release")
             isMinifyEnabled = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
