@@ -57,7 +57,11 @@ class WsClient(
             }
 
             override fun onClosing(ws: WebSocket, code: Int, reason: String) {
-                ws.close(code, null)
+                // A peer that closes without a status code surfaces here as 1005, which is
+                // reserved and throws if handed back to close() — OkHttp then reports a
+                // failure, and the service reconnects a second later, forever. Echo a
+                // normal close instead.
+                ws.close(if (code == 1005 || code == 1006) 1000 else code, null)
             }
 
             override fun onClosed(ws: WebSocket, code: Int, reason: String) {

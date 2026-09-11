@@ -39,6 +39,12 @@ class AgentConfig private constructor(private val ctx: Context) {
         get() = prefs.getString(KEY_ENROLL_SUMMARY, "")!!
         set(value) = prefs.edit().putString(KEY_ENROLL_SUMMARY, value.trim()).apply()
 
+    /** The enrollment token this device last exchanged for a key, so re-saving the same
+     *  token (it stays in the onboarding field) cannot wipe the key it bought. */
+    var lastEnrollToken: String
+        get() = prefs.getString(KEY_LAST_ENROLL_TOKEN, "")!!
+        set(value) = prefs.edit().putString(KEY_LAST_ENROLL_TOKEN, value.trim()).apply()
+
     /** True once the user has saved a server URL + key (onboarding complete enough to connect). */
     val isConfigured: Boolean
         get() = serverUrl.isNotBlank() && apiKey.isNotBlank()
@@ -175,6 +181,7 @@ class AgentConfig private constructor(private val ctx: Context) {
         private const val KEY_API_KEY = "api_key"
         private const val KEY_ENROLL_TOKEN = "enroll_token"
         private const val KEY_ENROLL_SUMMARY = "enroll_summary"
+        private const val KEY_LAST_ENROLL_TOKEN = "last_enroll_token"
         private const val KEY_CHECKIN_INTERVAL = "checkin_interval"
         private const val KEY_KIOSK_ENABLED = "kiosk_enabled"
         private const val KEY_KIOSK_PACKAGE = "kiosk_package"

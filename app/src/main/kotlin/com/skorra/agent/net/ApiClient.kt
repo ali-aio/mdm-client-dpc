@@ -17,6 +17,9 @@ import java.util.concurrent.TimeUnit
  */
 class ApiClient(private val config: AgentConfig) {
 
+    /** Called when the server rejects our key, so the service can enroll again. */
+    var onUnauthorized: (() -> Unit)? = null
+
     private val http = OkHttpClient.Builder()
         .connectTimeout(10, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
@@ -81,7 +84,8 @@ class ApiClient(private val config: AgentConfig) {
                             return if (text.isBlank()) JSONObject() else JSONObject(text)
                         }
                         resp.code == 401 -> {
-                            Log.e(TAG, "401 unauthorized for $path — check DEVICE_API_KEY")
+                            Log.e(TAG, "401 unauthorized for $path — device key rejected")
+                            onUnauthorized?.invoke()
                             return null
                         }
                         else -> lastErr = "HTTP ${resp.code}"

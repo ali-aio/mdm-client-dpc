@@ -51,7 +51,7 @@ class MdmService : LifecycleService(), WsClient.Listener, Acker {
         super.onCreate()
         config = AgentConfig.get(this)
         deviceOwner = DeviceOwner(this)
-        api = ApiClient(config)
+        api = ApiClient(config).also { it.onUnauthorized = { onUnauthorized() } }
         ws = WsClient(config, this)
         executor = CommandExecutor(this, deviceOwner, this, lifecycleScope)
         deviceOwner.ensureIdentityAccess() // grant READ_PHONE_STATE before resolving the serial
@@ -82,6 +82,22 @@ class MdmService : LifecycleService(), WsClient.Listener, Acker {
             config.isConfigured -> startTransport()
             config.needsEnrollment -> enrollThenStart()
         }
+    }
+
+    /**
+     * The server rejected our device key. A key is per-device and never comes back, so
+     * the only way forward is to enroll again — and this device can, whenever it still
+     * knows the token it enrolled with. Without this the agent sits on a dead key and
+     * repeats a 401 forever, which is exactly what it did after the onboarding screen
+     * cleared a working key.
+     */
+    fun onUnauthorized() {
+        val token = config.enrollToken.ifBlank { config.lastEnrollToken }
+        if (token.isBlank()) return
+        Log.w(TAG, "Device key rejected — re-enrolling with the token this device came with")
+        config.apiKey = ""
+        config.enrollToken = token
+        enrollThenStart()
     }
 
     @Volatile private var enrolling = false

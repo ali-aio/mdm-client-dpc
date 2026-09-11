@@ -70,7 +70,11 @@ class MainActivity : AppCompatActivity() {
         val key = intent?.getStringExtra("api_key")?.trim().orEmpty()
         if (server.isEmpty() && token.isEmpty() && key.isEmpty()) return
         if (server.isNotEmpty()) config.serverUrl = server
-        if (token.isNotEmpty()) { config.enrollToken = token; config.apiKey = "" }
+        if (token.isNotEmpty() && !(config.apiKey.isNotBlank() && token == config.lastEnrollToken)) {
+            config.enrollToken = token
+            config.lastEnrollToken = token
+            config.apiKey = ""
+        }
         if (key.isNotEmpty()) config.apiKey = key
         binding.inputServerUrl.setText(config.serverUrl)
         binding.inputApiKey.setText(if (token.isNotEmpty()) token else config.apiKey)
@@ -98,7 +102,13 @@ class MainActivity : AppCompatActivity() {
     private fun applyCredentialField() {
         val cred = binding.inputApiKey.text?.toString().orEmpty().trim()
         if (cred.startsWith("enr_")) {
+            // The field keeps showing the enrollment token after a successful enrollment,
+            // so re-applying it blindly threw away the device key the server had issued —
+            // every later check-in then came back 401 and the device went quiet. A token
+            // that has already been spent is not a reason to un-enroll.
+            if (config.apiKey.isNotBlank() && cred == config.lastEnrollToken) return
             config.enrollToken = cred
+            config.lastEnrollToken = cred
             config.apiKey = ""
         } else {
             config.apiKey = cred
