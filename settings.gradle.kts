@@ -15,3 +15,5 @@ dependencyResolutionManagement {
 
 rootProject.name = "mdm-agent"
 include(":app")
+include(":mdm-lite")
+include(":mdm-lite-demo")
