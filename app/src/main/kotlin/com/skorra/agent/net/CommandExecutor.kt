@@ -20,8 +20,9 @@ import java.util.Collections
  * Routes a server `command` frame to the right Device Owner action.
  *
  * Implemented (Phase 2): install_apk, uninstall, reboot, wipe, config (kiosk). Screen/input and
- * diagnostics land in later phases. Truly-unsupported types (shell/ota/update_splash) fail with a
- * clear reason so the dashboard shows why instead of hanging.
+ * diagnostics land in later phases. Unsupported types (update_splash, anything unknown) fail with a
+ * clear reason so the dashboard shows why instead of hanging. There is no OTA here: OTA is for our
+ * firmware devices only, and the server never targets a DPC device with one.
  */
 class CommandExecutor(
     private val ctx: Context,
@@ -55,7 +56,6 @@ class CommandExecutor(
             "screenshot" -> notYetImplemented(id, type) // covered by live screen capture instead
             "shell" -> shellCmd(id, frame, payload)
 
-            "ota" -> unsupported(id, "OTA deferred for the DPC agent (v1)")
             "update_splash" -> unsupported(id, "boot splash requires system partition access")
             else -> unsupported(id, "unknown command type: $type")
         }

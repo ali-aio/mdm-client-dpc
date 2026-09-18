@@ -10,7 +10,7 @@ import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 
 /**
- * HTTP device API client (checkin + command ack + logcat + ota), speaking the same contract as
+ * HTTP device API client (checkin + command ack + logcat), speaking the same contract as
  * the AOSP client's MdmApiService. Auth is the shared `X-API-Key` header.
  *
  * Retries transient failures a few times; a 401 aborts immediately (bad key).
@@ -62,10 +62,6 @@ class ApiClient(private val config: AgentConfig) {
     /** POST /api/v1/logcat */
     fun postLogcat(body: JSONObject): Boolean =
         postJson("/api/v1/logcat", body) != null
-
-    /** POST /api/v1/ota/status */
-    fun postOtaStatus(body: JSONObject): Boolean =
-        postJson("/api/v1/ota/status", body) != null
 
     private fun postJson(path: String, payload: JSONObject, attempts: Int = 3): JSONObject? {
         val url = config.apiUrl(path)

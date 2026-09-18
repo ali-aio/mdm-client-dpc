@@ -49,6 +49,5 @@ object Capabilities {
     val unsupported: List<String> = listOf(
         "logcat_full",    // whole-system READ_LOGS
         "update_splash",  // init-broker partition write
-        "ota",            // deferred for v1
     )
 }
