@@ -43,7 +43,11 @@ object Telemetry {
     }
 
     fun buildCheckin(ctx: Context, includeApps: Boolean): JSONObject {
+        // A TV box / dongle has no battery: its broadcast says present=false and carries
+        // 0% and 0 °C, which the server would show as a flat battery at freezing point.
+        // Without a pack, send no battery fields at all.
         val batteryIntent = ctx.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+            ?.takeIf { it.getBooleanExtra(BatteryManager.EXTRA_PRESENT, true) }
         val battery = readBattery(batteryIntent)
         val obj = JSONObject().apply {
             put("serial_number", DeviceIdentity.serial(ctx))
@@ -73,16 +77,25 @@ object Telemetry {
             put("sdk_int", Build.VERSION.SDK_INT)
             put("uptime_seconds", SystemClock.elapsedRealtime() / 1000)
             put("timezone", TimeZone.getDefault().id)
-            put("storage_free_bytes", stat.availableBytes)
+            // Same keys and units as the firmware client (MdmService.java): the server's
+            // RAM and storage surfaces read ram_usage_mb {total,available,used} and
+            // storage_free_gb, and showed nothing for DPC devices while we sent bytes.
+            put("storage_free_gb", Math.round(stat.availableBytes / GB * 10.0) / 10.0)
             put("storage_total_bytes", stat.totalBytes)
-            put("ram_free_bytes", mem.availMem)
-            put("ram_total_bytes", mem.totalMem)
+            put("ram_usage_mb", JSONObject().apply {
+                put("total", mem.totalMem / MB)
+                put("available", mem.availMem / MB)
+                put("used", (mem.totalMem - mem.availMem) / MB)
+            })
             // Same battery-broadcast telemetry the system client reports (MdmService.java):
             // temperature feeds the dashboard's hottest-device/running-hot surfaces, charging
             // feeds the on-charger vital and filters. EXTRA_TEMPERATURE is tenths of a °C.
             val tenths = batteryIntent?.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, Int.MIN_VALUE)
             if (tenths != null && tenths != Int.MIN_VALUE) put("battery_temp_c", tenths / 10.0)
             if (batteryIntent != null) put("charging", isCharging(batteryIntent))
+            // SoC temperature. The only reading a battery-less box has; the dashboard
+            // shows it with CPU thresholds, not the battery's.
+            cpuTempC(ctx)?.let { put("cpu_temp_c", it) }
             put("leanback", ctx.packageManager.hasSystemFeature(PackageManager.FEATURE_LEANBACK))
             attachNetwork(ctx, this)
             CrashEvents.recent(ctx)?.let { put("crash_events", it) }
@@ -193,6 +206,28 @@ object Telemetry {
                 lm.requestSingleUpdate(provider, { locationRequestInFlight = false }, null)
             }
         }.onFailure { locationRequestInFlight = false }
+    }
+
+    private const val MB = 1024L * 1024L
+    private const val GB = 1024.0 * 1024.0 * 1024.0
+
+    /**
+     * Hottest CPU core, in °C, from the thermal HAL via HardwarePropertiesManager (open to
+     * the Device Owner). Falls back to the first sysfs thermal zone where the SELinux
+     * policy lets an app read it. null when neither gives a plausible reading.
+     */
+    private fun cpuTempC(ctx: Context): Double? {
+        val hal = runCatching {
+            val hpm = ctx.getSystemService(Context.HARDWARE_PROPERTIES_SERVICE) as android.os.HardwarePropertiesManager
+            hpm.getDeviceTemperatures(
+                android.os.HardwarePropertiesManager.DEVICE_TEMPERATURE_CPU,
+                android.os.HardwarePropertiesManager.TEMPERATURE_CURRENT,
+            ).filter { it.isFinite() && it > 0f }.maxOrNull()?.toDouble()
+        }.getOrNull()
+        val t = hal ?: runCatching {
+            java.io.File("/sys/class/thermal/thermal_zone0/temp").readText().trim().toDouble() / 1000.0
+        }.getOrNull()
+        return t?.takeIf { it in 1.0..150.0 }?.let { Math.round(it * 10.0) / 10.0 }
     }
 
     private fun isCharging(batteryIntent: Intent): Boolean {
