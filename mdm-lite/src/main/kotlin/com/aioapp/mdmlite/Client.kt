@@ -11,18 +11,24 @@ internal class Client(serverUrl: String) {
 
     enum class Result { OK, UNAUTHORIZED, FAILED }
 
-    fun post(path: String, body: JSONObject, deviceKey: String): Result {
-        val conn = open(path, deviceKey) ?: return Result.FAILED
+    /** POST with the device key. [body] of the reply is the parsed JSON on success. */
+    class Reply(val result: Result, val body: JSONObject? = null)
+
+    fun post(path: String, body: JSONObject, deviceKey: String): Reply {
+        val conn = open(path, deviceKey) ?: return Reply(Result.FAILED)
         return try {
             conn.outputStream.use { it.write(body.toString().toByteArray()) }
             when (val code = conn.responseCode) {
-                in 200..299 -> Result.OK
-                401 -> Result.UNAUTHORIZED
-                else -> { Log.w(TAG, "$path: HTTP $code"); Result.FAILED }
+                in 200..299 -> {
+                    val text = conn.inputStream.use { it.readBytes().decodeToString() }
+                    Reply(Result.OK, runCatching { JSONObject(text) }.getOrNull())
+                }
+                401 -> Reply(Result.UNAUTHORIZED)
+                else -> { Log.w(TAG, "$path: HTTP $code"); Reply(Result.FAILED) }
             }
         } catch (e: Exception) {
             Log.w(TAG, "$path: ${e.message}")
-            Result.FAILED
+            Reply(Result.FAILED)
         } finally {
             conn.disconnect()
         }

@@ -116,13 +116,24 @@ object AioMdm {
         store.addEvent(kind, System.currentTimeMillis(), summary, detail)
     }
 
+    @Volatile private var sendApps = false
+
     private fun tick() {
         try {
             if (store.deviceKey.isEmpty() && !enroll()) return
             val events = store.pendingEvents()
-            val payload = Vitals.checkin(app, serial(), events)
-            when (client.post("/api/v1/checkin", payload, store.deviceKey)) {
-                Client.Result.OK -> store.dropEvents(events.length())
+            val apps = runCatching { Apps.list(app) }.getOrNull()
+            val appsHash = apps?.let { Apps.hash(it) }.orEmpty()
+            val includeApps = apps != null && (sendApps || appsHash != store.lastAppsHash)
+            val payload = Vitals.checkin(app, serial(), events, appsHash, if (includeApps) apps else null)
+            val reply = client.post("/api/v1/checkin", payload, store.deviceKey)
+            when (reply.result) {
+                Client.Result.OK -> {
+                    store.dropEvents(events.length())
+                    if (includeApps) { store.lastAppsHash = appsHash; sendApps = false }
+                    // The server asks for the full list when it lost track of ours.
+                    if (reply.body?.optBoolean("send_apps") == true) sendApps = true
+                }
                 Client.Result.UNAUTHORIZED -> {
                     // The key was revoked or the device deleted: enroll again next tick.
                     Log.w(TAG, "device key rejected, re-enrolling")

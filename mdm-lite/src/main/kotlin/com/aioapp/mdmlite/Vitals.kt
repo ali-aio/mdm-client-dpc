@@ -33,12 +33,14 @@ internal object Vitals {
 
     fun product(): String = Build.PRODUCT.ifBlank { Build.MODEL }
 
-    fun checkin(ctx: Context, serial: String, events: JSONArray): JSONObject =
+    fun checkin(ctx: Context, serial: String, events: JSONArray, appsHash: String, apps: JSONArray?): JSONObject =
         JSONObject()
             .put("serial_number", serial)
             .put("build_id", Build.DISPLAY.ifBlank { Build.ID })
             .put("product", product())
+            .put("apps_hash", appsHash)
             .put("extra", extra(ctx, events))
+            .apply { if (apps != null) put("installed_apps", apps) }
 
     private fun extra(ctx: Context, events: JSONArray) = JSONObject().apply {
         put("agent_type", AGENT_TYPE)
@@ -66,6 +68,7 @@ internal object Vitals {
         network(ctx, this)
         display(ctx, this)
         host(ctx, this)
+        runCatching { SecurityPosture.put(ctx, this) }
         if (events.length() > 0) put("crash_events", events)
     }
 

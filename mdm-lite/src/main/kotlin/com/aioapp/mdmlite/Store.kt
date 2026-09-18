@@ -22,6 +22,11 @@ internal class Store(ctx: Context) {
         get() = prefs.getString("device_key", "").orEmpty()
         set(v) { prefs.edit().putString("device_key", v).apply() }
 
+    /** apps_hash of the inventory the server last accepted. */
+    var lastAppsHash: String
+        get() = prefs.getString("apps_hash", "").orEmpty()
+        set(v) { prefs.edit().putString("apps_hash", v).apply() }
+
     /** Newest ApplicationExitInfo timestamp already reported. */
     var lastExitSeenMs: Long
         get() = prefs.getLong("last_exit_ms", 0L)
