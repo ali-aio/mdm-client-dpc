@@ -2,11 +2,14 @@ package com.aioapp.mdmlite
 
 import android.app.ActivityManager
 import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.hardware.display.DisplayManager
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.net.wifi.WifiManager
+import android.os.BatteryManager
 import android.os.Build
 import android.os.Environment
 import android.os.PowerManager
@@ -33,21 +36,44 @@ internal object Vitals {
 
     fun product(): String = Build.PRODUCT.ifBlank { Build.MODEL }
 
-    fun checkin(ctx: Context, serial: String, events: JSONArray, appsHash: String, apps: JSONArray?): JSONObject =
-        JSONObject()
+    fun checkin(ctx: Context, serial: String, events: JSONArray, appsHash: String, apps: JSONArray?): JSONObject {
+        val battery = battery(ctx)
+        return JSONObject()
             .put("serial_number", serial)
             .put("build_id", Build.DISPLAY.ifBlank { Build.ID })
             .put("product", product())
             .put("apps_hash", appsHash)
-            .put("extra", extra(ctx, events))
-            .apply { if (apps != null) put("installed_apps", apps) }
+            .put("extra", extra(ctx, events, battery))
+            .apply {
+                battery?.pct?.let { put("battery_pct", it) }
+                if (apps != null) put("installed_apps", apps)
+            }
+    }
 
-    private fun extra(ctx: Context, events: JSONArray) = JSONObject().apply {
+    /** The battery broadcast, only when a pack is present (phones, tablets; not TV boxes). */
+    private class Battery(val pct: Int?, val tempC: Double?, val plugged: Int, val status: Int)
+
+    private fun battery(ctx: Context): Battery? {
+        val i = ctx.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED)) ?: return null
+        // A box with no pack reports present=false with 0% and 0 °C: send nothing at all.
+        if (!i.getBooleanExtra(BatteryManager.EXTRA_PRESENT, true)) return null
+        val level = i.getIntExtra(BatteryManager.EXTRA_LEVEL, -1)
+        val scale = i.getIntExtra(BatteryManager.EXTRA_SCALE, -1)
+        val tenths = i.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, Int.MIN_VALUE)
+        return Battery(
+            pct = if (level >= 0 && scale > 0) level * 100 / scale else null,
+            tempC = if (tenths != Int.MIN_VALUE) tenths / 10.0 else null,
+            plugged = i.getIntExtra(BatteryManager.EXTRA_PLUGGED, 0),
+            status = i.getIntExtra(BatteryManager.EXTRA_STATUS, BatteryManager.BATTERY_STATUS_UNKNOWN),
+        )
+    }
+
+    private fun extra(ctx: Context, events: JSONArray, battery: Battery?) = JSONObject().apply {
         put("agent_type", AGENT_TYPE)
         put("agent_version", BuildConfig.LIB_VERSION)
         // Only what the library can actually do. The server offers a device no command
         // outside this list.
-        put("capabilities", JSONArray(listOf("telemetry")))
+        put("capabilities", JSONArray(listOf("telemetry", "screen_capture", "app_control")))
         put("capabilities_degraded", JSONArray())
         put("model", Build.MODEL)
         put("manufacturer", Build.MANUFACTURER)
@@ -62,12 +88,30 @@ internal object Vitals {
         runCatching {
             put("boot_count", Settings.Global.getInt(ctx.contentResolver, Settings.Global.BOOT_COUNT))
         }
+        // Battery keys as the firmware client sends them, so the server's battery chip,
+        // charts and low-battery alerts read them unchanged.
+        if (battery != null) {
+            put("battery_present", true)
+            battery.tempC?.let { put("battery_temp_c", it) }
+            put("charging", battery.plugged != 0 ||
+                battery.status == BatteryManager.BATTERY_STATUS_CHARGING ||
+                battery.status == BatteryManager.BATTERY_STATUS_FULL)
+            put("charger_type", when {
+                battery.plugged == 0 -> "none"
+                battery.plugged and BatteryManager.BATTERY_PLUGGED_AC != 0 -> "ac"
+                battery.plugged and BatteryManager.BATTERY_PLUGGED_USB != 0 -> "usb"
+                battery.plugged and BatteryManager.BATTERY_PLUGGED_WIRELESS != 0 -> "wireless"
+                else -> "unknown"
+            })
+        }
         memory(ctx, this)
         storage(this)
         thermal(ctx, this)
         network(ctx, this)
         display(ctx, this)
         host(ctx, this)
+        // Is the host app on screen? False means something else is in front of it.
+        put("app_foreground", Screen.foreground())
         runCatching { SecurityPosture.put(ctx, this) }
         if (events.length() > 0) put("crash_events", events)
     }

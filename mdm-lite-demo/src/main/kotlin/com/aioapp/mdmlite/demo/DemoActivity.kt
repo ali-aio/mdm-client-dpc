@@ -14,7 +14,8 @@ import com.aioapp.mdmlite.AioMdm
 
 /**
  * A WebView wired the way android-menu-board's MainScreen is. Test triggers:
- *   adb shell am start -n com.aioapp.mdmlite.demo/.DemoActivity --es trigger crash|anr|jserror|badurl
+ *   adb shell am start --activity-single-top -n com.aioapp.mdmlite.demo/.DemoActivity \
+ *       --es trigger crash|anr|jserror|badurl|blank
  */
 class DemoActivity : Activity() {
     private var web: WebView? = null
@@ -36,6 +37,7 @@ class DemoActivity : Activity() {
             "anr" -> web?.postDelayed({ Thread.sleep(30_000) }, 500) // main thread blocked; input times out
             "jserror" -> web?.evaluateJavascript("setTimeout(function(){ undefinedFn() }, 0)", null)
             "badurl" -> web?.loadUrl("https://does-not-exist.invalid/")
+            "blank" -> web?.loadUrl("about:blank") // uniform white: blank-screen detection
         }
     }
 
@@ -66,6 +68,7 @@ class DemoActivity : Activity() {
                 return true
             }
         }
+        AioMdm.attachWebView(this)
         loadUrl(BuildConfig.DEMO_URL)
     }
 }

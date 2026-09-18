@@ -54,6 +54,7 @@ object AioMdm {
     private lateinit var store: Store
     private lateinit var client: Client
     private lateinit var executor: ScheduledExecutorService
+    private lateinit var commands: Commands
 
     @JvmStatic
     fun init(application: Application, config: MdmConfig) {
@@ -66,12 +67,31 @@ object AioMdm {
         // First, so a crash during the rest of startup is still caught.
         Crashes.installHandler(store)
         Watchdog(store).start()
+        Screen.track(application)
+        commands = Commands(app, client, store, ::serial)
         executor = Executors.newSingleThreadScheduledExecutor { r ->
             Thread(r, "aio-mdm").apply { isDaemon = true; priority = Thread.MIN_PRIORITY }
         }
         executor.execute { Crashes.collectExitReasons(app, store) }
         executor.scheduleWithFixedDelay(::tick, 5, config.checkinSeconds, TimeUnit.SECONDS)
+        executor.scheduleWithFixedDelay(::checkBlank, 90, BLANK_CHECK_SECONDS, TimeUnit.SECONDS)
         Log.i(TAG, "started (serial=${serial()})")
+    }
+
+    /**
+     * The WebView that shows the host's content. The remote "reload page" and "clear web
+     * cache" commands act on it. Call again whenever the host replaces its WebView (e.g.
+     * after a renderer crash); only a weak reference is kept.
+     */
+    @JvmStatic
+    fun attachWebView(webView: android.webkit.WebView) {
+        if (started) commands.webView = java.lang.ref.WeakReference(webView)
+    }
+
+    /** What the remote "check for update" command runs (on the main thread). */
+    @JvmStatic
+    fun setUpdateCheck(action: () -> Unit) {
+        if (started) commands.onUpdateCheck = action
     }
 
     /** The WebView's renderer died. Call from WebViewClient.onRenderProcessGone. */
@@ -133,6 +153,7 @@ object AioMdm {
                     if (includeApps) { store.lastAppsHash = appsHash; sendApps = false }
                     // The server asks for the full list when it lost track of ours.
                     if (reply.body?.optBoolean("send_apps") == true) sendApps = true
+                    commands.run(reply.body?.optJSONArray("commands"))
                 }
                 Client.Result.UNAUTHORIZED -> {
                     // The key was revoked or the device deleted: enroll again next tick.
@@ -145,6 +166,32 @@ object AioMdm {
             Log.w(TAG, "check-in failed: ${t.message}")
         }
     }
+
+    private var blankStreak = 0
+
+    /**
+     * Blank-screen check: a near-uniform picture on two checks in a row (a black or white
+     * screen for 2+ minutes) is reported once, until the picture comes back. Skipped while
+     * the display is off or the app is not in front: neither is a blank menu.
+     */
+    private fun checkBlank() {
+        try {
+            val pm = app.getSystemService(Context.POWER_SERVICE) as android.os.PowerManager
+            if (!pm.isInteractive || !Screen.foreground()) { blankStreak = 0; return }
+            val (bmp, content) = Screen.captureWithContent() ?: return
+            val blank = Screen.isBlank(bmp, content)
+            bmp.recycle()
+            if (!blank) { blankStreak = 0; return }
+            blankStreak++
+            if (blankStreak == 2) {
+                report("screen_blank", "Screen blank (uniform colour) for ${2 * BLANK_CHECK_SECONDS / 60}+ minutes", null)
+            }
+        } catch (t: Throwable) {
+            Log.w(TAG, "blank check failed: ${t.message}")
+        }
+    }
+
+    private const val BLANK_CHECK_SECONDS = 120L
 
     private fun enroll(): Boolean {
         val body = JSONObject()
