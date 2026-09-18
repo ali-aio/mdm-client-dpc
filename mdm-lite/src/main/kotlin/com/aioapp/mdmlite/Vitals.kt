@@ -28,8 +28,8 @@ import java.util.TimeZone
  */
 internal object Vitals {
 
-    /** Server `agent_type`: an MDM library embedded in another app. */
-    const val AGENT_TYPE = "app"
+    /** Server `agent_type`: the MDM-lite library embedded in another app. */
+    const val AGENT_TYPE = "mdm-lite"
 
     fun product(): String = Build.PRODUCT.ifBlank { Build.MODEL }
 
