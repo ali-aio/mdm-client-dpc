@@ -8,8 +8,8 @@ import java.util.concurrent.ConcurrentHashMap
 
 /**
  * Logcat capture for the DPC agent. A non-system app can only read **its own** log entries (since
- * Android 4.1 dropped cross-app READ_LOGS), so this is app-scoped — honest about the system-app's
- * whole-device logcat no longer being available. Supports the server's one-shot logcat_request and
+ * Android 4.1 dropped cross-app READ_LOGS), so this is app-scoped — unless adb granted READ_LOGS
+ * at enrollment (tools/enroll-adb.sh), in which case the same `logcat` calls see the whole device. Supports the server's one-shot logcat_request and
  * live start/stop_logcat_stream shapes.
  */
 class LogcatManager(private val acker: Acker, private val serial: String) {

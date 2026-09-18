@@ -4,6 +4,10 @@ import android.app.ActivityManager
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.content.pm.PackageManager
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
+import android.net.wifi.WifiManager
 import android.os.BatteryManager
 import android.os.Build
 import android.os.Environment
@@ -11,6 +15,7 @@ import android.os.StatFs
 import android.os.SystemClock
 import com.skorra.agent.Capabilities
 import com.skorra.agent.DeviceIdentity
+import com.skorra.agent.device.CrashEvents
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.TimeZone
@@ -58,10 +63,10 @@ object Telemetry {
         val stat = StatFs(Environment.getDataDirectory().path)
         return JSONObject().apply {
             put("agent_type", Capabilities.AGENT_TYPE)
-            put("capabilities", JSONArray(Capabilities.supported))
+            put("capabilities", JSONArray(Capabilities.supported(ctx)))
             // Degraded = works with limits (consent, reduced scope). The dashboard shows
             // these as "limited" instead of hiding them.
-            put("capabilities_degraded", JSONArray(Capabilities.degraded))
+            put("capabilities_degraded", JSONArray(Capabilities.degraded(ctx)))
             put("model", Build.MODEL)
             put("manufacturer", Build.MANUFACTURER)
             put("android_release", Build.VERSION.RELEASE)
@@ -78,8 +83,37 @@ object Telemetry {
             val tenths = batteryIntent?.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, Int.MIN_VALUE)
             if (tenths != null && tenths != Int.MIN_VALUE) put("battery_temp_c", tenths / 10.0)
             if (batteryIntent != null) put("charging", isCharging(batteryIntent))
+            put("leanback", ctx.packageManager.hasSystemFeature(PackageManager.FEATURE_LEANBACK))
+            attachNetwork(ctx, this)
+            CrashEvents.recent(ctx)?.let { put("crash_events", it) }
             attachLocation(ctx, this)
             attachSecurityPosture(ctx, this)
+        }
+    }
+
+    /**
+     * ip_address / wifi / wifi_rssi, the keys the firmware client reports. The SSID reads as
+     * "<unknown ssid>" unless location is granted; that is reported as null, not as a name.
+     */
+    private fun attachNetwork(ctx: Context, extra: JSONObject) {
+        runCatching {
+            val cm = ctx.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+            val net = cm.activeNetwork
+            val ip = cm.getLinkProperties(net)?.linkAddresses
+                ?.firstOrNull { it.address is java.net.Inet4Address && !it.address.isLoopbackAddress }
+                ?.address?.hostAddress
+            extra.put("ip_address", ip ?: JSONObject.NULL)
+            val caps = cm.getNetworkCapabilities(net)
+            if (caps?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true) {
+                @Suppress("DEPRECATION")
+                val info = (ctx.applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager).connectionInfo
+                val ssid = info?.ssid?.takeIf { it.isNotBlank() && it != WifiManager.UNKNOWN_SSID }
+                extra.put("wifi", ssid ?: JSONObject.NULL)
+                extra.put("wifi_rssi", info?.rssi ?: JSONObject.NULL)
+            } else {
+                extra.put("wifi", JSONObject.NULL)
+                extra.put("wifi_rssi", JSONObject.NULL)
+            }
         }
     }
 

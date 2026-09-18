@@ -32,6 +32,21 @@
     <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES"
         tools:ignore="QueryAllPackagesPermission" />
 
+    <!-- Development permissions a Device Owner cannot self-grant but `adb shell pm grant`
+         can (tools/enroll-adb.sh does, at enrollment). Without them the agent degrades:
+         READ_LOGS (+ GET_USAGE_STATS appop) = DropBox crash/ANR reports and whole-device
+         logcat; WRITE_SECURE_SETTINGS = keep our accessibility (remote input) service on. -->
+    <uses-permission android:name="android.permission.READ_LOGS"
+        tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS"
+        tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.WRITE_SECURE_SETTINGS"
+        tools:ignore="ProtectedPermissions" />
+
+    <!-- Also runs on Android TV boxes / dongles: no touchscreen, remote-driven -->
+    <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
+    <uses-feature android:name="android.software.leanback" android:required="false" />
+
     <application
         android:name=".AgentApp"
         android:allowBackup="false"

@@ -60,4 +60,16 @@ class DeviceOwner(private val ctx: Context) {
             runCatching { dpm.setLocationEnabled(admin, true) }
         }
     }
+
+    /**
+     * Keep network time on. Boxes without a battery-backed clock boot years in the past, and
+     * with a wrong date every TLS handshake fails — the agent cannot even check in to report
+     * it. A user with Settings access can turn auto-time off; this turns it back on.
+     */
+    fun ensureAutoTime() {
+        if (!isDeviceOwner) return
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+            runCatching { if (!dpm.getAutoTimeEnabled(admin)) dpm.setAutoTimeEnabled(admin, true) }
+        }
+    }
 }
