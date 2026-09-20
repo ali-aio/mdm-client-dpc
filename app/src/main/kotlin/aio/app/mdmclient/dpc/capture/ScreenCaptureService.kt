@@ -71,8 +71,13 @@ class ScreenCaptureService : Service() {
         val scale = intent.getFloatExtra(EXTRA_SCALE, 0.75f).coerceIn(0.1f, 1.0f)
         val codecName = intent.getStringExtra(EXTRA_CODEC) ?: "h264"
         val quality = intent.getIntExtra(EXTRA_QUALITY, 70).coerceIn(10, 100)
+        val stillCmd = intent.getStringExtra(EXTRA_STILL_CMD)
 
         try {
+            if (!stillCmd.isNullOrBlank()) {
+                captureStill(resultCode, data, scale, stillCmd)
+                return START_NOT_STICKY
+            }
             startCapture(resultCode, data, fps, bitrate, scale, codecName, quality)
         } catch (e: Exception) {
             Log.e(TAG, "capture start failed: ${e.message}", e)
@@ -103,6 +108,83 @@ class ScreenCaptureService : Service() {
         if (codecName == "jpeg") startJpeg(proj, w, h, dpi, fps, quality)
         else startH264(proj, w, h, dpi, fps, bitrate)
         Log.i(TAG, "capture started ${w}x$h @${fps}fps codec=$codecName")
+    }
+
+    /**
+     * One frame, as a base64 PNG in the command ack — what the dashboard's screenshot
+     * view expects (`data:image/png;base64,...`). Streaming is a different shape:
+     * a still is a command with a result, so it never starts the encoder and tears the
+     * projection down as soon as it has its picture.
+     */
+    private fun captureStill(resultCode: Int, data: Intent, scale: Float, cmdId: String) {
+        val ack = AgentBus.acker
+        val mpm = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+        val proj = mpm.getMediaProjection(resultCode, data)
+        if (proj == null) {
+            ack?.ackCommand(cmdId, "failed", output = "no projection token")
+            stopSelf()
+            return
+        }
+        projection = proj
+        callbackThread = HandlerThread("cap-cb").apply { start() }
+        val handler = Handler(callbackThread.looper)
+        proj.registerCallback(object : MediaProjection.Callback() {
+            override fun onStop() { stopCapture(); stopSelf() }
+        }, handler)
+
+        val metrics = displayMetrics()
+        var w = (metrics.widthPixels * scale).toInt().roundDownEven()
+        var h = (metrics.heightPixels * scale).toInt().roundDownEven()
+        if (w < 2) w = 2; if (h < 2) h = 2
+
+        val reader = ImageReader.newInstance(w, h, PixelFormat.RGBA_8888, 2)
+        imageReader = reader
+        val done = java.util.concurrent.atomic.AtomicBoolean(false)
+        reader.setOnImageAvailableListener({ r ->
+            val img = r.acquireLatestImage() ?: return@setOnImageAvailableListener
+            try {
+                if (done.get()) return@setOnImageAvailableListener
+                val png = imageToPng(img, w, h)
+                done.set(true)
+                if (png != null) {
+                    ack?.ackCommand(cmdId, "completed", output = android.util.Base64.encodeToString(png, android.util.Base64.NO_WRAP))
+                } else {
+                    ack?.ackCommand(cmdId, "failed", output = "could not encode the frame")
+                }
+            } finally {
+                img.close()
+                if (done.get()) { stopCapture(); stopSelf() }
+            }
+        }, handler)
+
+        running = true
+        virtualDisplay = proj.createVirtualDisplay(
+            "aio-still", w, h, metrics.densityDpi,
+            DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR, reader.surface, null, handler,
+        )
+        // A display that never produces a frame would otherwise leave the command hanging.
+        handler.postDelayed({
+            if (done.compareAndSet(false, true)) {
+                ack?.ackCommand(cmdId, "failed", output = "no frame within 10s")
+                stopCapture(); stopSelf()
+            }
+        }, 10_000)
+    }
+
+    /** RGBA_8888 [Image] -> PNG bytes, undoing the row padding the reader may add. */
+    private fun imageToPng(img: Image, w: Int, h: Int): ByteArray? = try {
+        val plane = img.planes[0]
+        val bmpW = plane.rowStride / plane.pixelStride
+        var bmp = Bitmap.createBitmap(bmpW, h, Bitmap.Config.ARGB_8888)
+        bmp.copyPixelsFromBuffer(plane.buffer)
+        if (bmpW != w) { val cropped = Bitmap.createBitmap(bmp, 0, 0, w, h); bmp.recycle(); bmp = cropped }
+        val out = ByteArrayOutputStream()
+        bmp.compress(Bitmap.CompressFormat.PNG, 100, out)
+        bmp.recycle()
+        out.toByteArray()
+    } catch (e: Exception) {
+        Log.w(TAG, "still encode failed: ${e.message}")
+        null
     }
 
     /** Hardware H.264 (best on real devices) — VirtualDisplay -> MediaCodec input Surface. */
@@ -271,6 +353,8 @@ class ScreenCaptureService : Service() {
         const val EXTRA_SCALE = "scale"
         const val EXTRA_FPS = "fps"
         const val EXTRA_BITRATE = "bitrate"
+        /** Command id for a one-shot still: capture one frame, ack it, stop. */
+        const val EXTRA_STILL_CMD = "still_cmd"
 
         fun stop(ctx: Context) {
             ctx.startService(Intent(ctx, ScreenCaptureService::class.java).setAction(ACTION_STOP))

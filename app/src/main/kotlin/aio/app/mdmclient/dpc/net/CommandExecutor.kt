@@ -4,6 +4,8 @@ import android.content.Context
 import android.util.Log
 import aio.app.mdmclient.dpc.AgentConfig
 import aio.app.mdmclient.dpc.DeviceOwner
+import aio.app.mdmclient.dpc.Grants
+import aio.app.mdmclient.dpc.capture.ScreenCaptureConsentActivity
 import aio.app.mdmclient.dpc.device.AgentUpdater
 import aio.app.mdmclient.dpc.device.ApkInstaller
 import aio.app.mdmclient.dpc.device.KioskManager
@@ -55,7 +57,7 @@ class CommandExecutor(
             "reboot" -> reboot(id)
             "wipe" -> wipe(id)
             "config" -> applyConfigCommand(id, payload)
-            "screenshot" -> notYetImplemented(id, type) // covered by live screen capture instead
+            "screenshot" -> screenshot(id)
             "shell" -> shellCmd(id, frame, payload)
 
             "update_splash" -> unsupported(id, "boot splash requires system partition access")
@@ -107,6 +109,24 @@ class CommandExecutor(
                 result.success -> acker.ackCommand(id, "installed", output = "ok", pkg = result.pkg)
                 else -> acker.ackCommand(id, "failed", output = result.message)
             }
+        }
+    }
+
+    /**
+     * One frame of the screen, acked as a base64 PNG. Goes through the consent activity
+     * like live capture does: with the PROJECT_MEDIA appop granted (tools/enroll-adb.sh)
+     * it is silent, otherwise someone confirms the projection prompt once. The ack comes
+     * from the capture service, not from here.
+     */
+    private fun screenshot(id: String) {
+        if (!Grants.projectMediaAllowed(ctx)) {
+            // Still possible — it just needs the prompt — so this is a note, not a failure.
+            Log.i(TAG, "screenshot $id: no PROJECT_MEDIA appop, the device will show the consent prompt")
+        }
+        try {
+            ScreenCaptureConsentActivity.launchStill(ctx, id)
+        } catch (e: Exception) {
+            acker.ackCommand(id, "failed", output = "could not start capture: ${e.message}")
         }
     }
 

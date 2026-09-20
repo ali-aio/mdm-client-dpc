@@ -46,9 +46,34 @@ adb reverse tcp:8080 tcp:8080
 Open the **AIO MDM** app, set the server URL (`http://localhost:8080` with the reverse
 above) + device API key, and tap **Save & connect**.
 
-> Note: on GMS devices, Google Play Protect gates non-allowlisted custom DPCs at *provisioning*
-> (QR/zero-touch). The `adb` path above is unaffected. QR/zero-touch onboarding + allowlisting is
-> a later phase.
+> **On GMS devices, the QR path does not work today.** Google Play Protect gates
+> non-allowlisted custom DPCs at *provisioning* (QR and zero-touch), which a Pixel 3a XL
+> confirmed on 2026-09-20: a correct payload — download location, checksums and all — still
+> aborts in the setup wizard. The `adb` path above is unaffected and is the enrollment
+> route for GMS hardware until the DPC is allowlisted with Google. The QR is for non-GMS
+> devices; `aio-mdm-web/tools/enroll-adb.sh` does the adb path for one device or a batch.
+
+## Agent OTA (updating this app)
+
+The agent updates itself. The server hosts one agent APK (`/agent/aio-mdm-dpc.apk`); a
+device that reports an older `versionCode` gets an **Update agent** action on its device
+page, which sends `app_update` with that URL.
+
+`AgentUpdater` downloads it, then refuses anything that is not a genuine upgrade of this
+app: same package, same signing key, a higher version code, and the SHA-256 the server
+sent. As Device Owner the install is silent. Committing it kills this process, so the
+command is acknowledged by the *new* version at startup (`settlePending`) rather than here
+— that is why a pending update is written to prefs before the install.
+
+Publishing a new build, given the signing key and an admin API key:
+
+```bash
+set -a && . keystore/signing.env && set +a
+tools/publish-agent.sh -s https://mdm-stage.dev.aioapp.com -k "$ADMIN_API_KEY"
+```
+
+The signing key must never change: Android only installs an update signed with the same
+certificate as the build it replaces. CI does the same thing on a push (`.github/workflows/build.yml`).
 
 ## Layout
 

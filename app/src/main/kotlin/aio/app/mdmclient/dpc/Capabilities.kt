@@ -26,6 +26,9 @@ object Capabilities {
         "wipe",
         "config",
         "telemetry",
+        // Implemented by ShellSession, but always the unprivileged app UID — so it is
+        // advertised and also listed as degraded, rather than withheld entirely.
+        "shell",
     )
 
     /**
@@ -40,7 +43,7 @@ object Capabilities {
         "screen_capture" to Grants.projectMediaAllowed(ctx),
         "input" to Grants.accessibilityEnabled(ctx),
         "logcat" to Grants.readLogs(ctx),
-        "shell" to false,
+        "shell" to false, // never "full": an app UID shell, not root or system
     )
 
     fun supported(ctx: Context): List<String> = base + upgraded(ctx).filterValues { it }.keys

@@ -6,6 +6,7 @@ import android.content.Intent
 import android.media.projection.MediaProjectionManager
 import android.os.Build
 import android.os.Bundle
+import aio.app.mdmclient.dpc.AgentBus
 import android.util.Log
 
 /**
@@ -35,10 +36,15 @@ class ScreenCaptureConsentActivity : Activity() {
                 putExtra(ScreenCaptureService.EXTRA_SCALE, intent.getFloatExtra(ScreenCaptureService.EXTRA_SCALE, 0.75f))
                 putExtra(ScreenCaptureService.EXTRA_FPS, intent.getIntExtra(ScreenCaptureService.EXTRA_FPS, 15))
                 putExtra(ScreenCaptureService.EXTRA_BITRATE, intent.getIntExtra(ScreenCaptureService.EXTRA_BITRATE, 4_000_000))
+                putExtra(ScreenCaptureService.EXTRA_STILL_CMD, intent.getStringExtra(ScreenCaptureService.EXTRA_STILL_CMD))
             }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(svc) else startService(svc)
         } else {
             Log.w(TAG, "screen capture consent denied")
+            // A still is a command someone is waiting on: say why instead of nothing.
+            intent.getStringExtra(ScreenCaptureService.EXTRA_STILL_CMD)?.takeIf { it.isNotBlank() }?.let {
+                AgentBus.acker?.ackCommand(it, "failed", output = "screen capture consent denied on the device")
+            }
         }
         finish()
     }
@@ -49,7 +55,19 @@ class ScreenCaptureConsentActivity : Activity() {
 
         /** Params forwarded from the server's start_capture frame. */
         fun launch(ctx: Context, codec: String, quality: Int, scale: Float, fps: Int, bitrate: Int) {
-            val i = Intent(ctx, ScreenCaptureConsentActivity::class.java).apply {
+            ctx.startActivity(baseIntent(codec, quality, scale, fps, bitrate, ctx))
+        }
+
+        /** One frame for a "screenshot" command, acked as a base64 PNG under [cmdId]. */
+        fun launchStill(ctx: Context, cmdId: String, scale: Float = 1.0f) {
+            ctx.startActivity(
+                baseIntent("jpeg", 90, scale, 1, 1_000_000, ctx)
+                    .putExtra(ScreenCaptureService.EXTRA_STILL_CMD, cmdId),
+            )
+        }
+
+        private fun baseIntent(codec: String, quality: Int, scale: Float, fps: Int, bitrate: Int, ctx: Context) =
+            Intent(ctx, ScreenCaptureConsentActivity::class.java).apply {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 putExtra(ScreenCaptureService.EXTRA_CODEC, codec)
                 putExtra(ScreenCaptureService.EXTRA_QUALITY, quality)
@@ -57,7 +75,5 @@ class ScreenCaptureConsentActivity : Activity() {
                 putExtra(ScreenCaptureService.EXTRA_FPS, fps)
                 putExtra(ScreenCaptureService.EXTRA_BITRATE, bitrate)
             }
-            ctx.startActivity(i)
-        }
     }
 }
