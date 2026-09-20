@@ -10,6 +10,11 @@ import android.os.SystemClock
  * input arriving to trigger an ANR at all (a signage screen nobody touches), leaves no
  * trace. This posts a no-op to the main thread every second and reports `app_freeze`,
  * with the main thread's stack at the moment it was stuck, once per freeze.
+ *
+ * Android freezes a backgrounded app's whole process (Android 11+ cached-app freezer). On
+ * thaw the main thread looks minutes behind, but nothing was stuck: every thread was
+ * paused, this one included. The watchdog times its own sleep, and when that overran it
+ * treats the gap as a pause, not a freeze.
  */
 internal class Watchdog(private val store: Store) {
     private val main = Handler(Looper.getMainLooper())
@@ -20,7 +25,13 @@ internal class Watchdog(private val store: Store) {
         Thread({
             while (true) {
                 main.post { lastBeat = SystemClock.uptimeMillis() }
+                val slept = SystemClock.uptimeMillis()
                 try { Thread.sleep(TICK_MS) } catch (_: InterruptedException) { return@Thread }
+                if (SystemClock.uptimeMillis() - slept > PAUSE_MS) {
+                    lastBeat = SystemClock.uptimeMillis() // the process was paused, not stuck
+                    reported = false
+                    continue
+                }
                 val stuck = SystemClock.uptimeMillis() - lastBeat
                 if (stuck >= FREEZE_MS && !reported) {
                     reported = true
@@ -38,5 +49,6 @@ internal class Watchdog(private val store: Store) {
     companion object {
         private const val TICK_MS = 1_000L
         private const val FREEZE_MS = 5_000L
+        private const val PAUSE_MS = 3_000L // a 1 s sleep that took this long: process paused
     }
 }

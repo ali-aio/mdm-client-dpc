@@ -1,5 +1,6 @@
 package aio.app.mdmclient.dpc
 
+import android.os.Build
 import android.app.AppOpsManager
 import android.content.ComponentName
 import android.content.Context
@@ -28,9 +29,15 @@ object Grants {
     /** PROJECT_MEDIA allowed = the system skips the per-session screen capture consent. */
     fun projectMediaAllowed(ctx: Context): Boolean = runCatching {
         val ops = ctx.getSystemService(Context.APP_OPS_SERVICE) as AppOpsManager
-        @Suppress("DEPRECATION")
-        ops.unsafeCheckOpNoThrow(OP_PROJECT_MEDIA, Process.myUid(), ctx.packageName) ==
-            AppOpsManager.MODE_ALLOWED
+        // unsafeCheckOpNoThrow is API 29; minSdk is 28. Without the branch, API 28 took a
+        // NoSuchMethodError into runCatching and reported "not allowed" for a device where
+        // the appop may well be granted — the deprecated call is the correct answer there.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            ops.unsafeCheckOpNoThrow(OP_PROJECT_MEDIA, Process.myUid(), ctx.packageName)
+        } else {
+            @Suppress("DEPRECATION")
+            ops.checkOpNoThrow(OP_PROJECT_MEDIA, Process.myUid(), ctx.packageName)
+        } == AppOpsManager.MODE_ALLOWED
     }.getOrDefault(false)
 
     fun accessibilityEnabled(ctx: Context): Boolean =

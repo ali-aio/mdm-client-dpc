@@ -60,6 +60,16 @@ android {
         }
     }
 
+    lint {
+        // The agent is a Device Owner: it grants itself location at runtime
+        // (DeviceOwner.ensureLocationAccess) and receives READ_LOGS, READ_DROPBOX_DATA and
+        // the rest from tools/enroll-adb.sh. Lint only reads the manifest, so every one of
+        // those calls looks unpermitted to it. Downgraded to a warning deliberately, so the
+        // remaining lint errors stay meaningful enough to fail the build on.
+        warning += "MissingPermission"
+        abortOnError = true
+    }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
@@ -82,4 +92,8 @@ dependencies {
 
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
     // Lightweight JSON via org.json (bundled in Android) — no extra dep needed for now.
+
+    // JVM unit tests: the decisions that must not be wrong (UpdateCheck) are kept free
+    // of Android types precisely so they can be tested without a device or Robolectric.
+    testImplementation("junit:junit:4.13.2")
 }
