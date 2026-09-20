@@ -1,8 +1,10 @@
 name: Build agent
 
 # The DPC agent had no CI: every APK was built on someone's machine and carried to
-# the server by hand. This builds each push, and publishes to the MDM server when
-# the signing key and an admin API key are configured as secrets.
+# the server by hand. This runs the tests, then builds, and publishes to the MDM server
+# when the signing key and an admin API key are configured as secrets. Nothing is
+# published that did not pass — the agent is what manages the fleet, so a bad one costs
+# the fleet.
 #
 # Secrets, all optional — without them the job still builds and uploads an unsigned
 # artifact, it just cannot publish:
@@ -53,6 +55,25 @@ jobs:
         run: |
           echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.jks"
           echo "keystore=$RUNNER_TEMP/release.jks" >> "$GITHUB_OUTPUT"
+
+      # The gate. Publishing replaces the agent that manages the fleet, so an untested
+      # build must not reach a device: these run before the APK is built, and a failure
+      # here stops the job before anything is signed or posted.
+      - name: Unit tests
+        run: ./gradlew :app:testReleaseUnitTest --console=plain
+
+      - name: Lint
+        run: ./gradlew :app:lintRelease --console=plain
+
+      - name: Upload test and lint reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: agent-reports
+          path: |
+            app/build/reports/tests/**
+            app/build/reports/lint-results-*.html
+          if-no-files-found: ignore
 
       - name: Build release APK
         env:

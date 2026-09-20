@@ -109,23 +109,28 @@ object AgentUpdater {
 
     /** null = good to install, else the reason it was rejected. */
     private fun verify(ctx: Context, apk: File, sha256: String): String? {
-        if (sha256.isNotBlank()) {
-            val got = MessageDigest.getInstance("SHA-256").digest(apk.readBytes())
+        val info = archiveInfo(ctx, apk)
+        val cur = runCatching {
+            ctx.packageManager.getPackageInfo(ctx.packageName, PackageManager.GET_SIGNING_CERTIFICATES)
+        }.getOrNull() ?: return "could not read the installed version"
+        // Hashing only when the server sent something to compare against: it reads the
+        // whole APK, and an unchecked digest is not worth the I/O.
+        val actual = if (sha256.isBlank()) "" else {
+            MessageDigest.getInstance("SHA-256").digest(apk.readBytes())
                 .joinToString("") { "%02x".format(it) }
-            if (!got.equals(sha256, ignoreCase = true)) return "checksum mismatch"
         }
-        val info = archiveInfo(ctx, apk) ?: return "not a valid APK"
-        if (info.packageName != ctx.packageName) {
-            return "APK is ${info.packageName}, not this agent (${ctx.packageName})"
-        }
-        val cur = ctx.packageManager.getPackageInfo(ctx.packageName, PackageManager.GET_SIGNING_CERTIFICATES)
-        if (info.longVersionCode <= cur.longVersionCode) {
-            return "APK ${info.versionName} (${info.longVersionCode}) is not newer than " +
-                "the installed ${cur.versionName} (${cur.longVersionCode})"
-        }
-        // Android refuses a mismatched signature anyway; this fails early and says why.
-        if (signers(info).intersect(signers(cur)).isEmpty()) return "APK is signed with a different key"
-        return null
+        return UpdateCheck.reject(
+            expectedSha256 = sha256,
+            actualSha256 = actual,
+            apkPackage = info?.packageName,
+            ourPackage = ctx.packageName,
+            apkVersionCode = info?.longVersionCode ?: 0,
+            apkVersionName = info?.versionName,
+            installedVersionCode = cur.longVersionCode,
+            installedVersionName = cur.versionName,
+            apkSigners = info?.let { signers(it) }.orEmpty(),
+            installedSigners = signers(cur),
+        )
     }
 
     private fun archiveInfo(ctx: Context, apk: File): PackageInfo? =
