@@ -11,15 +11,15 @@ val mdmServerUrl: String = (project.findProperty("mdmServerUrl") as String?) ?: 
 val mdmApiKey: String = (project.findProperty("mdmApiKey") as String?) ?: ""
 
 android {
-    namespace = "com.skorra.agent"
+    namespace = "aio.app.mdmclient.dpc"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.skorra.agent"
+        applicationId = "aio.app.mdmclient.dpc"
         minSdk = 28
         targetSdk = 35
-        versionCode = 7
-        versionName = "0.1.6"
+        versionCode = 8
+        versionName = "0.2.0"
 
         buildConfigField("String", "DEFAULT_SERVER_URL", "\"$mdmServerUrl\"")
         buildConfigField("String", "DEFAULT_API_KEY", "\"$mdmApiKey\"")
@@ -39,7 +39,7 @@ android {
             if (ks != null) {
                 storeFile = file(ks)
                 storePassword = System.getenv("KEYSTORE_PASS")
-                keyAlias = System.getenv("KEY_ALIAS") ?: "skorra"
+                keyAlias = System.getenv("KEY_ALIAS") ?: "aio-mdm-dpc"
                 keyPassword = System.getenv("KEY_PASS") ?: System.getenv("KEYSTORE_PASS")
             }
         }

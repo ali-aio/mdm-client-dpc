@@ -38,7 +38,7 @@ succeed.
 
 ```bash
 adb install -r app/build/outputs/apk/debug/app-debug.apk
-adb shell dpm set-device-owner com.skorra.agent/.MdmDeviceAdminReceiver
+adb shell dpm set-device-owner aio.app.mdmclient.dpc/.MdmDeviceAdminReceiver
 # reach a locally-running server from the device:
 adb reverse tcp:8080 tcp:8080
 ```
@@ -55,7 +55,7 @@ above) + device API key, and tap **Save & connect**.
 ```
 app/src/main/
   AndroidManifest.xml
-  kotlin/com/skorra/agent/
+  kotlin/aio/app/mdmclient/dpc/
     AgentApp.kt              notification channels
     AgentConfig.kt           prefs-backed server URL + API key (device-protected storage)
     Capabilities.kt          what this DPC can/can't do (reported on checkin)

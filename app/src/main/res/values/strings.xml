@@ -18,5 +18,5 @@
     <string name="a11y_description">Lets AIO MDM deliver remote touch and navigation input during a support session.</string>
 
     <string name="do_active">Active — this app is Device Owner</string>
-    <string name="do_inactive">Not provisioned. Run:\n adb shell dpm set-device-owner com.skorra.agent/.MdmDeviceAdminReceiver</string>
+    <string name="do_inactive">Not provisioned. Run:\n adb shell dpm set-device-owner aio.app.mdmclient.dpc/.MdmDeviceAdminReceiver</string>
 </resources>

@@ -118,7 +118,7 @@
             android:theme="@android:style/Theme.Black.NoTitleBar.Fullscreen" />
 
         <!-- Device Owner / Device Admin. DO component name used by adb:
-             adb shell dpm set-device-owner com.skorra.agent/.MdmDeviceAdminReceiver -->
+             adb shell dpm set-device-owner aio.app.mdmclient.dpc/.MdmDeviceAdminReceiver -->
         <receiver
             android:name=".MdmDeviceAdminReceiver"
             android:description="@string/admin_description"

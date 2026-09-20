@@ -19,3 +19,5 @@ agent-config.local.properties
 # release signing
 *.jks
 *.keystore
+
+keystore/

@@ -1,0 +1,90 @@
+package aio.app.mdmclient.dpc.device
+
+import android.app.admin.DevicePolicyManager
+import android.content.ComponentName
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
+import android.content.pm.PackageManager
+import android.util.Log
+import aio.app.mdmclient.dpc.AgentConfig
+import aio.app.mdmclient.dpc.DeviceOwner
+import aio.app.mdmclient.dpc.kiosk.KioskHostActivity
+
+/**
+ * App-lock (kiosk) control via Device Owner APIs. Real, exit-resistant locking of a third-party
+ * app takes actual lock-task (screen pinning), which only an app in the task can start — so we
+ * pin our own [KioskHostActivity] (set as Home) and host the target app on top of it:
+ *   - setLockTaskPackages     — permit the target app (+ our agent) in lock task
+ *   - setLockTaskFeatures(NONE) — hide home/recents/notifications/keyguard while pinned
+ *   - setStatusBarDisabled    — kill the pull-down shade + quick settings
+ *   - addPersistentPreferredActivity(HOME → KioskHostActivity) — Home button + boot land in our
+ *     host, which startLockTask()s (disabling the nav bar) and relaunches the target
+ * The host does the pinning; this class just installs the policy and kicks it off.
+ */
+class KioskManager(private val ctx: Context, private val deviceOwner: DeviceOwner) {
+
+    /** Convenience overload reading the full kiosk state (mode/extras/browser) from config. */
+    fun apply(config: AgentConfig) {
+        val browser = config.kioskMode == "browser"
+        val active = config.kioskEnabled &&
+            (if (browser) config.kioskUrl.isNotBlank()
+             else config.kioskPackage.isNotBlank() || config.kioskExtraPackages().isNotEmpty())
+        val allowed = if (browser) emptyList()
+        else (listOf(config.kioskPackage) + config.kioskExtraPackages()).filter { it.isNotBlank() }.distinct()
+        apply(active, allowed)
+    }
+
+    fun apply(enabled: Boolean, allowedPackages: List<String>) {
+        if (!deviceOwner.isDeviceOwner) {
+            Log.w(TAG, "not device owner; cannot apply app lock")
+            return
+        }
+        val dpm = deviceOwner.dpm
+        val admin = deviceOwner.admin
+        val host = ComponentName(ctx, KioskHostActivity::class.java)
+
+        if (enabled) {
+            setHostEnabled(host, true) // make our host a valid Home candidate
+            dpm.setLockTaskPackages(admin, (allowedPackages + ctx.packageName).toTypedArray())
+            runCatching { dpm.setLockTaskFeatures(admin, DevicePolicyManager.LOCK_TASK_FEATURE_NONE) }
+            runCatching { dpm.setStatusBarDisabled(admin, true) }
+            // Route Home (button + boot) to our pinning host.
+            val homeFilter = IntentFilter(Intent.ACTION_MAIN).apply {
+                addCategory(Intent.CATEGORY_HOME)
+                addCategory(Intent.CATEGORY_DEFAULT)
+            }
+            runCatching { dpm.addPersistentPreferredActivity(admin, homeFilter, host) }
+                .onFailure { Log.w(TAG, "persistent home failed: ${it.message}") }
+            // Kick it off now.
+            runCatching {
+                ctx.startActivity(Intent(ctx, KioskHostActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            }
+            Log.i(TAG, "app lock ENABLED (${allowedPackages.ifEmpty { listOf("browser") }})")
+        } else {
+            // Emptying the allowlist makes the system drop out of lock task automatically.
+            dpm.setLockTaskPackages(admin, emptyArray())
+            runCatching { dpm.setStatusBarDisabled(admin, false) }
+            runCatching { dpm.clearPackagePersistentPreferredActivities(admin, ctx.packageName) }
+            // Bring the host forward so it exits lock task + returns to the onboarding screen,
+            // then stop it being a Home candidate.
+            runCatching {
+                ctx.startActivity(Intent(ctx, KioskHostActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            }
+            setHostEnabled(host, false)
+            Log.i(TAG, "app lock DISABLED")
+        }
+    }
+
+    private fun setHostEnabled(host: ComponentName, on: Boolean) {
+        val state = if (on) PackageManager.COMPONENT_ENABLED_STATE_ENABLED
+        else PackageManager.COMPONENT_ENABLED_STATE_DISABLED
+        runCatching {
+            ctx.packageManager.setComponentEnabledSetting(host, state, PackageManager.DONT_KILL_APP)
+        }.onFailure { Log.w(TAG, "toggle host component failed: ${it.message}") }
+    }
+
+    companion object {
+        private const val TAG = "KioskManager"
+    }
+}
