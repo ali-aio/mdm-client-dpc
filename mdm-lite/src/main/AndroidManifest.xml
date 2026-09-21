@@ -5,6 +5,8 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <!-- Keep the background check-in scheduled across reboots (CheckinJob). -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <!-- Installed-app inventory (spot vendor-preloaded app stores and the like). A normal
          install-time permission for sideloaded apps; Google Play restricts it, so a
          Play-distributed host would remove it with tools:node="remove". -->
@@ -12,6 +14,11 @@
         tools:ignore="QueryAllPackagesPermission" />
 
     <application>
+        <!-- Background check-in every ~15 min while the app is backgrounded or dozing. -->
+        <service
+            android:name="com.aioapp.mdmlite.CheckinJob"
+            android:exported="false"
+            android:permission="android.permission.BIND_JOB_SERVICE" />
         <!-- Remote "restart app": a no-UI activity in its own process that ends the app's
              process and launches it again (see RestartActivity). -->
         <activity

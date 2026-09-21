@@ -11,6 +11,7 @@ import androidx.lifecycle.LifecycleService
 import androidx.lifecycle.lifecycleScope
 import aio.app.mdmclient.dpc.capture.ScreenCaptureConsentActivity
 import aio.app.mdmclient.dpc.capture.ScreenCaptureService
+import aio.app.mdmclient.dpc.device.ScreenControl
 import aio.app.mdmclient.dpc.device.AgentUpdater
 import aio.app.mdmclient.dpc.device.LogcatManager
 import aio.app.mdmclient.dpc.net.Acker
@@ -204,6 +205,10 @@ class MdmService : LifecycleService(), WsClient.Listener, Acker {
             })
             "checkin_now" -> lifecycleScope.launch(Dispatchers.IO) { doCheckin() }
             "cancel_command" -> executor.cancel(msg.optString("id"))
+            // The server sends this on an operator's wake (remote control), and on its own
+            // when kiosk is switched on — a device that wakes to a black locked screen is
+            // the same as one that never woke.
+            "wake_screen" -> ScreenControl.wake(this)
             "start_capture" -> startCapture(msg)
             "stop_capture" -> ScreenCaptureService.stop(this)
             "input_event" -> AgentBus.input?.handle(msg)
@@ -234,6 +239,10 @@ class MdmService : LifecycleService(), WsClient.Listener, Acker {
     override fun sendBinary(bytes: ByteString): Boolean = ws.sendBinary(bytes)
 
     private fun startCapture(msg: JSONObject) {
+        // A capture of a sleeping device is a black rectangle, and the operator cannot tell
+        // that from a broken stream. Wake first — the system-app client does the same at
+        // session start.
+        ScreenControl.wake(this)
         ScreenCaptureConsentActivity.launch(
             ctx = this,
             codec = msg.optString("codec", "h264"),

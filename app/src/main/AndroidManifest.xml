@@ -22,6 +22,9 @@
     <!-- Lifecycle -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <!-- Lets the wake activity take the keyguard down on a device with no secure lock —
+         every kiosk and menu board. With a PIN set, the system prompts instead. -->
+    <uses-permission android:name="android.permission.DISABLE_KEYGUARD" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <!-- Foreground service (checkin loop = dataSync; screen capture = mediaProjection, Phase 3) -->
@@ -92,6 +95,19 @@
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
         </activity>
+
+        <!-- Wake: a transparent activity that exists for ~400ms with setTurnScreenOn, which
+             is how an app without the system UID turns a display on (see ScreenControl). -->
+        <activity
+            android:name=".ui.WakeActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:stateNotNeeded="true"
+            android:launchMode="singleInstance"
+            android:showOnLockScreen="true"
+            android:turnScreenOn="true"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
 
         <!-- App-lock host: becomes Home + pins (startLockTask) while the lock is active.
              Disabled by default so it's not a Home candidate until KioskManager enables it. -->

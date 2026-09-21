@@ -73,6 +73,8 @@ object AioMdm {
             Thread(r, "aio-mdm").apply { isDaemon = true; priority = Thread.MIN_PRIORITY }
         }
         executor.execute { Crashes.collectExitReasons(app, store) }
+        // Keeps reporting (every ~15 min) when the app is backgrounded or the device dozes.
+        runCatching { CheckinJob.schedule(app) }
         executor.scheduleWithFixedDelay(::tick, 5, config.checkinSeconds, TimeUnit.SECONDS)
         executor.scheduleWithFixedDelay(::checkBlank, 90, BLANK_CHECK_SECONDS, TimeUnit.SECONDS)
         Log.i(TAG, "started (serial=${serial()})")
@@ -138,15 +140,31 @@ object AioMdm {
 
     @Volatile private var sendApps = false
 
+    // What the last check-in did, and when. The background job reads the pair to tell
+    // whether starting the process already reported, so it does not send a second one a
+    // second later (see [checkinNow]).
+    @Volatile private var lastCheckinAtMs = 0L
+    @Volatile private var lastCheckinResult = ""
+
     private fun tick() {
         try {
-            if (store.deviceKey.isEmpty() && !enroll()) return
+            if (store.deviceKey.isEmpty() && !enroll()) {
+                lastCheckinAtMs = System.currentTimeMillis()
+                lastCheckinResult = "enroll failed"
+                return
+            }
             val events = store.pendingEvents()
             val apps = runCatching { Apps.list(app) }.getOrNull()
             val appsHash = apps?.let { Apps.hash(it) }.orEmpty()
             val includeApps = apps != null && (sendApps || appsHash != store.lastAppsHash)
             val payload = Vitals.checkin(app, serial(), events, appsHash, if (includeApps) apps else null)
             val reply = client.post("/api/v1/checkin", payload, store.deviceKey)
+            lastCheckinAtMs = System.currentTimeMillis()
+            lastCheckinResult = when (reply.result) {
+                Client.Result.OK -> "ok"
+                Client.Result.UNAUTHORIZED -> "rejected"
+                Client.Result.FAILED -> "failed"
+            }
             when (reply.result) {
                 Client.Result.OK -> {
                     store.dropEvents(events.length())
@@ -165,6 +183,24 @@ object AioMdm {
         } catch (t: Throwable) {
             Log.w(TAG, "check-in failed: ${t.message}")
         }
+    }
+
+    /**
+     * One check-in right now, off the caller's thread; [done] runs when it finishes. For
+     * the background job. False when MDM-lite is not running in this process.
+     */
+    internal fun checkinNow(done: () -> Unit): Boolean {
+        if (!started) return false
+        executor.execute {
+            try {
+                // Starting the process for the job already ran init's check-in a moment
+                // ago (same single-thread executor, so it has finished): don't send a
+                // second one 1-2 s later.
+                val fresh = lastCheckinResult == "ok" && System.currentTimeMillis() - lastCheckinAtMs < 60_000
+                if (!fresh) tick()
+            } finally { done() }
+        }
+        return true
     }
 
     private var blankStreak = 0

@@ -2,6 +2,7 @@ package aio.app.mdmclient.dpc.net
 
 import android.app.ActivityManager
 import android.content.Context
+import aio.app.mdmclient.dpc.device.ScreenControl
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
@@ -141,7 +142,13 @@ object Telemetry {
         runCatching {
             val km = ctx.getSystemService(Context.KEYGUARD_SERVICE) as android.app.KeyguardManager
             extra.put("screen_lock_set", km.isDeviceSecure)
+            // Whether a keyguard is currently up, which is the difference between a wake
+            // that lit the screen and one the operator still cannot drive.
+            extra.put("screen_locked", km.isKeyguardLocked)
         }
+        // The same key the system-app client reports: the dashboard's screen state and the
+        // standby rollup both read it, and until now no DPC device ever sent one.
+        runCatching { extra.put("screen_on", ScreenControl.isScreenOn(ctx)) }
         runCatching {
             val adb = android.provider.Settings.Global.getInt(
                 ctx.contentResolver, android.provider.Settings.Global.ADB_ENABLED, 0,
