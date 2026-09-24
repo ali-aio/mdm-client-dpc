@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Dashboard dark theme (html[data-theme="dark"] in style.css). -->
+<resources>
+    <color name="ui_bg">#0D0D12</color>
+    <color name="ui_surface">#16161D</color>
+    <color name="ui_surface2">#1E1E27</color>
+    <color name="ui_border">#2A2A35</color>
+    <color name="ui_border_soft">#202029</color>
+    <color name="ui_text">#F4F4F6</color>
+    <color name="ui_text2">#B3B4BD</color>
+    <color name="ui_muted">#A0A1AB</color>
+    <color name="ui_faint">#8A8B95</color>
+    <color name="ui_accent">#F9805F</color>
+    <color name="ui_accent_press">#FFA088</color>
+    <color name="ui_accent2">#99A1F2</color>
+    <color name="ui_on_accent">#FFFFFF</color>
+    <color name="ui_ring">#F4F4F6</color>
+    <color name="ui_console">#121519</color>
+    <color name="ui_ok">#55BD75</color>
+    <color name="ui_ok_bg">#1F55BD75</color>
+    <color name="ui_warn">#DBA33A</color>
+    <color name="ui_warn_bg">#1FDBA33A</color>
+    <color name="ui_bad">#E07575</color>
+    <color name="ui_bad_bg">#1FE07575</color>
+    <color name="ui_info">#6BA3F0</color>
+    <color name="ui_info_bg">#1F6BA3F0</color>
+    <color name="ui_neutral_bg">#1E1E27</color>
+</resources>

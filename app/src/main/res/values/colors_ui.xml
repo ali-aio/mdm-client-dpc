@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The dashboard's tokens (aio-mdm-web static/style.css, light theme), so the agent's
+     status screen reads as the same product. Dark values are in values-night. -->
+<resources>
+    <color name="ui_bg">#F7F7F7</color>
+    <color name="ui_surface">#FFFFFF</color>
+    <color name="ui_surface2">#F1F1F3</color>
+    <color name="ui_border">#E9E9ED</color>
+    <color name="ui_border_soft">#F0F0F3</color>
+    <color name="ui_text">#1A1A1A</color>
+    <color name="ui_text2">#4F4F4F</color>
+    <color name="ui_muted">#5F5F66</color>
+    <color name="ui_faint">#74747C</color>
+    <color name="ui_accent">#F9674E</color>
+    <color name="ui_accent_press">#EC4F33</color>
+    <color name="ui_accent2">#7A80F6</color>
+    <color name="ui_on_accent">#FFFFFF</color>
+    <color name="ui_ring">#1A1A1A</color>
+    <color name="ui_console">#F6F7F9</color>
+    <color name="ui_ok">#0F6D33</color>
+    <color name="ui_ok_bg">#1A157F3C</color>
+    <color name="ui_warn">#8F4209</color>
+    <color name="ui_warn_bg">#1AB45309</color>
+    <color name="ui_bad">#B42318</color>
+    <color name="ui_bad_bg">#1AB42318</color>
+    <color name="ui_info">#1A63C0</color>
+    <color name="ui_info_bg">#1A1D6FD8</color>
+    <color name="ui_neutral_bg">#F1F1F3</color>
+</resources>

@@ -3,20 +3,22 @@
     <string name="app_name">AIO MDM</string>
     <string name="admin_description">Allows AIO MDM to manage this device (kiosk, apps, configuration, reboot, and remote support).</string>
 
-    <!-- Onboarding -->
-    <string name="onboarding_title">AIO MDM</string>
-    <string name="status_device_owner">Device Owner</string>
-    <string name="status_serial">Serial</string>
-    <string name="status_server">Server</string>
-    <string name="status_connection">Connection</string>
-    <string name="status_enrollment">Enrollment</string>
-    <string name="label_server_url">Server URL</string>
-    <string name="label_api_key">Device API key or enrollment token</string>
-    <string name="action_save">Save &amp; connect</string>
-    <string name="action_test">Test connection</string>
-
     <string name="a11y_description">Lets AIO MDM deliver remote touch and navigation input during a support session.</string>
 
-    <string name="do_active">Active — this app is Device Owner</string>
-    <string name="do_inactive">Not provisioned. Run:\n adb shell dpm set-device-owner aio.app.mdmclient.dpc/.MdmDeviceAdminReceiver</string>
+    <!-- Status screen -->
+    <string name="brand_sub">Device management</string>
+    <string name="action_checkin">Check in now</string>
+    <string name="action_checking">Checking in…</string>
+    <string name="action_settings">Device settings</string>
+    <string name="card_management">Management</string>
+    <string name="card_device">This device</string>
+    <string name="card_policies">Policies in force</string>
+    <string name="card_capabilities">What the MDM can do here</string>
+    <string name="card_capabilities_sub">Green is fully available. Amber works with limits on this device.</string>
+    <string name="card_privacy">What your organization can see</string>
+
+    <string name="setup_do_title">Make AIO MDM the device owner</string>
+    <string name="setup_do_body">Device owner is what lets AIO MDM lock the device to kiosk, install apps silently and apply policy. It can only be set on a freshly reset device with no accounts on it: scan the AIO enrollment QR code during setup (tap the welcome screen six times to open the scanner), or over adb:</string>
+    <string name="setup_enroll_title">Enroll this device</string>
+    <string name="setup_enroll_body">Enrollment connects the device to an AIO MDM server. It normally arrives with the provisioning QR code. To enroll over adb, pass the server and an enrollment token from the dashboard\'s enrollment profiles:</string>
 </resources>

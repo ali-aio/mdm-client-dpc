@@ -80,6 +80,9 @@ class MdmService : LifecycleService(), WsClient.Listener, Acker {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         super.onStartCommand(intent, flags, startId)
+        if (intent?.action == ACTION_CHECKIN_NOW && wantConnected) {
+            lifecycleScope.launch(Dispatchers.IO) { doCheckin() }
+        }
         // A restart (e.g. after Save & connect, or provisioning extras landing) may have added config.
         if (!wantConnected) maybeStart()
         return START_STICKY
@@ -114,6 +117,7 @@ class MdmService : LifecycleService(), WsClient.Listener, Acker {
     private fun enrollThenStart() {
         if (enrolling) return
         enrolling = true
+        AgentStatus.enrolling = true
         lifecycleScope.launch(Dispatchers.IO) {
             var attempt = 0
             while (isActive && config.needsEnrollment) {
@@ -143,10 +147,12 @@ class MdmService : LifecycleService(), WsClient.Listener, Acker {
                 }
                 // Server unreachable or token rejected: back off and retry (a revoked token
                 // keeps failing here, visible in the onboarding screen's status).
+                AgentStatus.checkinResult(false, api.lastError)
                 attempt++
                 delay((30_000L * attempt).coerceAtMost(300_000L))
             }
             enrolling = false
+            AgentStatus.enrolling = false
         }
     }
 
@@ -178,7 +184,9 @@ class MdmService : LifecycleService(), WsClient.Listener, Acker {
         val currentHash = Telemetry.appsHash(this)
         val includeApps = currentHash != lastKnownAppsHash
         val payload = Telemetry.buildCheckin(this, includeApps)
-        val resp = api.checkin(payload) ?: return
+        val resp = api.checkin(payload)
+        AgentStatus.checkinResult(resp != null, api.lastError)
+        if (resp == null) return
         lastKnownAppsHash = currentHash
         if (resp.optBoolean("send_apps", false) && !includeApps) {
             // Server wants the full list next time regardless of hash.
@@ -190,6 +198,7 @@ class MdmService : LifecycleService(), WsClient.Listener, Acker {
     // ---- WsClient.Listener ----
 
     override fun onOpen() {
+        AgentStatus.wsConnected = true
         reconnectAttempt = 0
         sendTelemetry(includeApps = false)
     }
@@ -221,6 +230,7 @@ class MdmService : LifecycleService(), WsClient.Listener, Acker {
     }
 
     override fun onClosed(reason: String) {
+        AgentStatus.wsConnected = false
         if (!wantConnected) return
         val delayMs = BACKOFF_MS[reconnectAttempt.coerceIn(0, BACKOFF_MS.lastIndex)]
         reconnectAttempt++
@@ -287,6 +297,7 @@ class MdmService : LifecycleService(), WsClient.Listener, Acker {
 
     override fun onDestroy() {
         wantConnected = false
+        AgentStatus.wsConnected = false
         reconnectJob?.cancel()
         logcat.stopAll()
         ws.close()
@@ -320,8 +331,11 @@ class MdmService : LifecycleService(), WsClient.Listener, Acker {
         private const val NOTIF_ID = 1001
         private val BACKOFF_MS = longArrayOf(1000, 2000, 4000, 8000, 30000)
 
-        fun start(context: Context) {
-            val intent = Intent(context, MdmService::class.java)
+        /** Status screen's "Check in now": one check-in right away, outside the interval. */
+        const val ACTION_CHECKIN_NOW = "aio.app.mdmclient.dpc.CHECKIN_NOW"
+
+        fun start(context: Context, action: String? = null) {
+            val intent = Intent(context, MdmService::class.java).setAction(action)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 context.startForegroundService(intent)
             } else {

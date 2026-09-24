@@ -20,6 +20,10 @@ class ApiClient(private val config: AgentConfig) {
     /** Called when the server rejects our key, so the service can enroll again. */
     var onUnauthorized: (() -> Unit)? = null
 
+    /** Why the last request failed, for the status screen ("HTTP 502", a network error). */
+    @Volatile var lastError: String = ""
+        private set
+
     private val http = OkHttpClient.Builder()
         .connectTimeout(10, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
@@ -48,9 +52,11 @@ class ApiClient(private val config: AgentConfig) {
                     return if (text.isBlank()) JSONObject() else JSONObject(text)
                 }
                 Log.w(TAG, "enroll failed: HTTP ${resp.code}")
+                lastError = if (resp.code == 401) "Enrollment token rejected" else "Enrollment failed: HTTP ${resp.code}"
             }
         } catch (e: Exception) {
             Log.w(TAG, "enroll failed: ${e.message}")
+            lastError = "Enrollment failed: ${e.message ?: e.javaClass.simpleName}"
         }
         return null
     }
@@ -81,6 +87,7 @@ class ApiClient(private val config: AgentConfig) {
                         }
                         resp.code == 401 -> {
                             Log.e(TAG, "401 unauthorized for $path — device key rejected")
+                            lastError = "Device key rejected"
                             onUnauthorized?.invoke()
                             return null
                         }
@@ -88,12 +95,13 @@ class ApiClient(private val config: AgentConfig) {
                     }
                 }
             } catch (e: Exception) {
-                lastErr = e.message
+                lastErr = e.message ?: e.javaClass.simpleName
             }
             // linear-ish backoff with a little growth
             try { Thread.sleep(500L * (i + 1)) } catch (_: InterruptedException) { return null }
         }
         Log.w(TAG, "POST $path failed after $attempts attempts: $lastErr")
+        lastError = lastErr.orEmpty()
         return null
     }
 

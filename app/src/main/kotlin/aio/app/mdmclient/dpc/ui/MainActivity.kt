@@ -1,35 +1,74 @@
 package aio.app.mdmclient.dpc.ui
 
 import android.Manifest
-import android.content.pm.PackageManager
-import android.os.Build
+import android.content.ComponentName
 import android.content.Intent
+import android.content.IntentFilter
+import android.content.pm.PackageManager
+import android.content.res.ColorStateList
+import android.graphics.drawable.GradientDrawable
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
+import android.net.Uri
+import android.net.wifi.WifiManager
+import android.os.BatteryManager
+import android.os.Build
 import android.os.Bundle
+import android.os.Environment
+import android.os.Handler
+import android.os.Looper
+import android.os.StatFs
+import android.os.SystemClock
+import android.provider.Settings
+import android.util.TypedValue
+import android.view.Gravity
+import android.view.View
+import android.view.ViewGroup
+import android.widget.LinearLayout
+import android.widget.TextView
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
-import androidx.lifecycle.lifecycleScope
+import androidx.core.content.res.ResourcesCompat
 import aio.app.mdmclient.dpc.AgentConfig
+import aio.app.mdmclient.dpc.AgentStatus
+import aio.app.mdmclient.dpc.BuildConfig
+import aio.app.mdmclient.dpc.Capabilities
 import aio.app.mdmclient.dpc.DeviceIdentity
 import aio.app.mdmclient.dpc.DeviceOwner
+import aio.app.mdmclient.dpc.MdmDeviceAdminReceiver
 import aio.app.mdmclient.dpc.MdmService
 import aio.app.mdmclient.dpc.R
 import aio.app.mdmclient.dpc.databinding.ActivityMainBinding
-import aio.app.mdmclient.dpc.net.ApiClient
-import aio.app.mdmclient.dpc.net.Telemetry
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
+import com.google.android.material.chip.Chip
+import org.json.JSONObject
+import java.net.Inet4Address
 
 /**
- * Onboarding + status screen. Shows Device Owner state and serial, lets the operator set the
- * server URL + device API key, and starts the agent service.
+ * Status screen, in the dashboard's design language: is this device managed, is it reporting,
+ * and what the agent knows and enforces. Read-only on purpose — enrollment arrives by QR
+ * provisioning or the adb extras below, so there is no server URL or key to type (or to see).
+ * Refreshes every second while in front; works with a D-pad on a TV box.
  */
 class MainActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityMainBinding
     private lateinit var config: AgentConfig
     private lateinit var deviceOwner: DeviceOwner
+
+    private val ui = Handler(Looper.getMainLooper())
+    private val tick = object : Runnable {
+        override fun run() {
+            refreshStatus()
+            ui.postDelayed(this, 1000)
+        }
+    }
+
+    /** "Check in now" stays in its busy state until a newer attempt lands, or 20 s pass. */
+    private var checkinRequestedAt = 0L
+
+    // Last rendered content per list, so a tick that changes nothing touches no views.
+    private val rendered = mutableMapOf<Int, Any>()
 
     private val notifPermission =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { /* best-effort */ }
@@ -42,13 +81,18 @@ class MainActivity : AppCompatActivity() {
         config = AgentConfig.get(this)
         deviceOwner = DeviceOwner(this)
 
-        binding.inputServerUrl.setText(config.serverUrl)
-        binding.inputApiKey.setText(config.apiKey)
-
-        binding.buttonSave.setOnClickListener { save() }
-        binding.buttonTest.setOnClickListener { testConnection() }
+        layoutColumns()
+        binding.buttonCheckin.setOnClickListener { checkInNow() }
+        binding.buttonSettings.setOnClickListener {
+            runCatching { startActivity(Intent(Settings.ACTION_SETTINGS)) }
+        }
+        binding.footer.text = "AIO MDM agent ${BuildConfig.VERSION_NAME} · aioapp.com"
+        binding.buttonCheckin.requestFocus()
 
         maybeRequestNotifPermission()
+        // The service normally runs from boot or provisioning; opening the app also brings
+        // it back after a force-stop, so the screen is never waiting on nothing.
+        if (config.isConfigured || config.needsEnrollment) MdmService.start(this)
         applyLaunchExtras(intent)
     }
 
@@ -70,78 +114,403 @@ class MainActivity : AppCompatActivity() {
         val key = intent?.getStringExtra("api_key")?.trim().orEmpty()
         if (server.isEmpty() && token.isEmpty() && key.isEmpty()) return
         if (server.isNotEmpty()) config.serverUrl = server
+        // A token this device already spent must not wipe the key it bought.
         if (token.isNotEmpty() && !(config.apiKey.isNotBlank() && token == config.lastEnrollToken)) {
             config.enrollToken = token
             config.lastEnrollToken = token
             config.apiKey = ""
         }
         if (key.isNotEmpty()) config.apiKey = key
-        binding.inputServerUrl.setText(config.serverUrl)
-        binding.inputApiKey.setText(if (token.isNotEmpty()) token else config.apiKey)
         MdmService.start(this)
         refreshStatus()
     }
 
     override fun onResume() {
         super.onResume()
+        rendered.clear() // grants and policy may have changed while away
+        ui.post(tick)
+    }
+
+    override fun onPause() {
+        ui.removeCallbacks(tick)
+        super.onPause()
+    }
+
+    private fun checkInNow() {
+        if (checkinBusy()) return
+        checkinRequestedAt = System.currentTimeMillis()
+        MdmService.start(this, MdmService.ACTION_CHECKIN_NOW)
         refreshStatus()
     }
 
-    private fun save() {
-        config.serverUrl = binding.inputServerUrl.text?.toString().orEmpty()
-        applyCredentialField()
-        MdmService.start(this)
-        refreshStatus()
-    }
+    // ── Rendering ────────────────────────────────────────────────────────────────
 
-    /**
-     * The key field accepts either a device API key or an enrollment token (server issues
-     * tokens with an "enr_" prefix). A token is stashed for MdmService to exchange for a
-     * per-device key at /api/v1/enroll; anything else is used as the API key directly.
-     */
-    private fun applyCredentialField() {
-        val cred = binding.inputApiKey.text?.toString().orEmpty().trim()
-        if (cred.startsWith("enr_")) {
-            // The field keeps showing the enrollment token after a successful enrollment,
-            // so re-applying it blindly threw away the device key the server had issued —
-            // every later check-in then came back 401 and the device went quiet. A token
-            // that has already been spent is not a reason to un-enroll.
-            if (config.apiKey.isNotBlank() && cred == config.lastEnrollToken) return
-            config.enrollToken = cred
-            config.lastEnrollToken = cred
-            config.apiKey = ""
-        } else {
-            config.apiKey = cred
-        }
-    }
+    private enum class Tone { OK, WARN, BAD, INFO, NEUTRAL }
 
-    private fun testConnection() {
-        // Persist current field values first so we test what's on screen.
-        config.serverUrl = binding.inputServerUrl.text?.toString().orEmpty()
-        applyCredentialField()
-        binding.statusConnection.text = getString(R.string.status_connection) + ": testing…"
-        lifecycleScope.launch {
-            val ok = withContext(Dispatchers.IO) {
-                runCatching {
-                    ApiClient(config).checkin(Telemetry.buildCheckin(this@MainActivity, includeApps = false)) != null
-                }.getOrDefault(false)
-            }
-            binding.statusConnection.text = getString(R.string.status_connection) + ": " +
-                if (ok) "connected ✓" else "failed ✗"
-        }
-    }
+    /** One label/value line in a card; a [tone] renders the value as a status tag. */
+    private data class Row(val label: String, val value: String, val tone: Tone? = null, val mono: Boolean = false)
 
     private fun refreshStatus() {
-        val serial = DeviceIdentity.serial(this)
-        binding.statusDeviceOwner.text = getString(R.string.status_device_owner) + ": " +
-            if (deviceOwner.isDeviceOwner) getString(R.string.do_active) else getString(R.string.do_inactive)
-        binding.statusSerial.text = getString(R.string.status_serial) + ": " + serial
-        binding.statusConnection.text = getString(R.string.status_server) + ": " +
-            (config.serverUrl.ifBlank { "—" })
-        val summary = config.enrollSummary
-        binding.statusEnrollment.visibility = if (summary.isBlank()) android.view.View.GONE else android.view.View.VISIBLE
-        binding.statusEnrollment.text = getString(R.string.status_enrollment) + ": " + summary
+        val isOwner = deviceOwner.isDeviceOwner
+        binding.deviceName.text = deviceName()
+        binding.deviceSub.text = "Android ${Build.VERSION.RELEASE} · ${DeviceIdentity.serial(this)}"
+        styleTag(binding.headerTag, if (isOwner) "Managed" else "Not managed", if (isOwner) Tone.OK else Tone.WARN)
+
+        val (tone, title, detail) = overallStatus(isOwner)
+        (binding.statusDot.background as? GradientDrawable ?: GradientDrawable().apply {
+            shape = GradientDrawable.OVAL
+            binding.statusDot.background = this
+        }).setColor(fg(tone))
+        binding.statusTitle.text = title
+        binding.statusDetail.text = detail
+
+        binding.buttonCheckin.text = getString(if (checkinBusy()) R.string.action_checking else R.string.action_checkin)
+        // Nothing to check in with until enrolled: hidden, not dimmed, so focus lands elsewhere.
+        // While busy it stays enabled and ignores presses — a disabled view drops D-pad focus.
+        binding.buttonCheckin.visibility = if (config.isConfigured) View.VISIBLE else View.GONE
+
+        renderSetup(isOwner)
+        renderRows(binding.rowsManagement, managementRows(isOwner))
+        renderRows(binding.rowsDevice, deviceRows())
+        renderRows(binding.rowsPolicies, policyRows())
+        renderCapabilities()
+        renderPrivacy()
     }
+
+    private fun checkinBusy() = checkinRequestedAt > 0 && AgentStatus.lastAttemptAtMs < checkinRequestedAt &&
+        System.currentTimeMillis() - checkinRequestedAt < 20_000
+
+    /** The one line that says whether this device is fine, and what to look at if not. */
+    private fun overallStatus(isOwner: Boolean): Triple<Tone, String, String> {
+        val s = AgentStatus
+        val link = if (s.wsConnected) "Live connection" else "HTTP check-ins only"
+        return when {
+            !config.isConfigured && !config.needsEnrollment ->
+                Triple(Tone.BAD, "Not enrolled", "This device has no MDM server to report to yet.")
+            config.needsEnrollment || s.enrolling ->
+                Triple(Tone.INFO, "Enrolling…", s.lastError.ifBlank { "Exchanging the enrollment token for a device key." })
+            s.lastAttemptAtMs == 0L ->
+                Triple(Tone.INFO, "Connecting…", "Waiting for the first check-in with ${serverHost()}.")
+            !s.lastAttemptOk ->
+                Triple(Tone.BAD, "Can't reach the server", s.lastError + " · " +
+                    if (s.lastOkAtMs > 0) "last successful check-in ${ago(s.lastOkAtMs)}" else "no successful check-in yet")
+            !isOwner ->
+                Triple(Tone.WARN, "Reporting · not device owner", "Last check-in ${ago(s.lastOkAtMs)} · $link")
+            else ->
+                Triple(Tone.OK, "Managed · reporting", "Last check-in ${ago(s.lastOkAtMs)} · $link")
+        }
+    }
+
+    private fun renderSetup(isOwner: Boolean) {
+        val card = binding.setupCard
+        val pkg = packageName
+        when {
+            !isOwner -> {
+                binding.setupTitle.setText(R.string.setup_do_title)
+                binding.setupBody.setText(R.string.setup_do_body)
+                binding.setupCommand.text = "adb shell dpm set-device-owner " +
+                    ComponentName(this, MdmDeviceAdminReceiver::class.java).flattenToShortString()
+                card.visibility = View.VISIBLE
+            }
+            !config.isConfigured && !config.needsEnrollment -> {
+                binding.setupTitle.setText(R.string.setup_enroll_title)
+                binding.setupBody.setText(R.string.setup_enroll_body)
+                binding.setupCommand.text = "adb shell am start -n $pkg/${MainActivity::class.java.name} " +
+                    "--es server_url <server> --es enroll_token <token>"
+                card.visibility = View.VISIBLE
+            }
+            else -> card.visibility = View.GONE
+        }
+    }
+
+    private fun managementRows(isOwner: Boolean): List<Row> {
+        val s = AgentStatus
+        val rows = mutableListOf(
+            Row("Device owner", if (isOwner) "Active" else "Not set", if (isOwner) Tone.OK else Tone.BAD),
+            Row("Enrollment", when {
+                config.needsEnrollment || s.enrolling -> "In progress"
+                config.enrollSummary.isNotBlank() -> config.enrollSummary
+                config.isConfigured -> "Enrolled"
+                else -> "Not enrolled"
+            }),
+            Row("Server", serverHost()),
+        )
+        if (config.isConfigured) {
+            rows += Row("Connection", if (s.wsConnected) "Live" else "HTTP only", if (s.wsConnected) Tone.OK else Tone.WARN)
+            rows += Row("Checks in every", duration(config.checkinIntervalSeconds * 1000L))
+            rows += Row("Last check-in", if (s.lastAttemptAtMs == 0L) "Not yet" else ago(s.lastAttemptAtMs))
+            if (s.lastAttemptAtMs > 0) {
+                rows += if (s.lastAttemptOk) Row("Result", "OK", Tone.OK)
+                else Row("Result", "Failed · ${s.lastError}", Tone.BAD)
+            }
+        }
+        return rows
+    }
+
+    private fun deviceRows(): List<Row> = buildList {
+        add(Row("Serial", DeviceIdentity.serial(this@MainActivity), mono = true))
+        add(Row("Model", deviceName()))
+        add(Row("Android", "${Build.VERSION.RELEASE} · API ${Build.VERSION.SDK_INT}"))
+        Build.VERSION.SECURITY_PATCH.takeIf { it.isNotBlank() }?.let { add(Row("Security patch", it)) }
+        add(Row("Agent", "${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})"))
+        add(Row("Network", network()))
+        add(Row("Storage", storage()))
+        battery()?.let { add(Row("Battery", it)) }
+        add(Row("Up for", duration(SystemClock.elapsedRealtime())))
+    }
+
+    private fun policyRows(): List<Row> = buildList {
+        add(if (!config.kioskEnabled) Row("Kiosk", "Off", Tone.NEUTRAL) else Row("Kiosk", kiosk(), Tone.INFO))
+        add(Row("System updates", updatePolicy()))
+        add(Row("Location reporting", if (config.locationEnabled) "On" else "Off",
+            if (config.locationEnabled) Tone.INFO else Tone.NEUTRAL))
+        add(Row("Managed network", managedNetwork()))
+        val configs = jsonArrayLength(config.appRestrictionsJson)
+        add(Row("App configurations", if (configs == 0) "None" else plural(configs, "app")))
+    }
+
+    private fun renderRows(container: LinearLayout, rows: List<Row>) {
+        if (rendered[container.id] == rows) return
+        rendered[container.id] = rows
+        container.removeAllViews()
+        rows.forEachIndexed { i, r ->
+            if (i > 0) container.addView(View(this).apply { setBackgroundColor(color(R.color.ui_border_soft)) },
+                LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(1)))
+            val line = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                minimumHeight = dp(40)
+                setPadding(0, dp(8), 0, dp(8))
+            }
+            line.addView(text(r.label, 13f, R.color.ui_muted),
+                LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 0.42f))
+            val value = text(r.value, 13f, R.color.ui_text, weight = 500).apply {
+                gravity = Gravity.END
+                if (r.mono) typeface = android.graphics.Typeface.MONOSPACE
+                if (r.tone != null) styleTag(this, r.value, r.tone)
+            }
+            val holder = LinearLayout(this).apply { gravity = Gravity.END or Gravity.CENTER_VERTICAL }
+            holder.addView(value)
+            line.addView(holder, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 0.58f))
+            container.addView(line)
+        }
+    }
+
+    /** Capabilities as tags: green for full support, amber where this device limits them. */
+    private fun renderCapabilities() {
+        val limited = Capabilities.degraded(this)
+        val full = Capabilities.supported(this).filter { it !in limited }
+        val key = full to limited
+        if (rendered[R.id.capabilities] == key) return
+        rendered[R.id.capabilities] = key
+        val group = binding.capabilities
+        group.removeAllViews()
+        (full.map { it to Tone.OK } + limited.map { it to Tone.WARN }).forEach { (cap, tone) ->
+            group.addView(Chip(this).apply {
+                text = CAPABILITY_NAMES[cap] ?: cap.replace('_', ' ').replaceFirstChar { it.uppercase() }
+                typeface = ResourcesCompat.getFont(this@MainActivity, R.font.poppins_medium)
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 12.5f)
+                setTextColor(fg(tone))
+                chipBackgroundColor = ColorStateList.valueOf(bg(tone))
+                chipStrokeWidth = 0f
+                chipMinHeight = dp(28).toFloat()
+                chipCornerRadius = dp(40).toFloat()
+                setEnsureMinTouchTargetSize(false)
+                isClickable = false
+                isFocusable = false
+                isCheckable = false
+            })
+        }
+    }
+
+    /** The disclosure commercial MDMs show: what is collected, and when the screen is seen. */
+    private fun renderPrivacy() {
+        val lines = listOf(
+            "Device details: model, serial number, Android version and this app's version",
+            "Health: battery, storage, memory, network and uptime",
+            "Which apps are installed",
+            "Location, only while location reporting is on (currently ${if (config.locationEnabled) "on" else "off"})",
+            "During a remote support session: the screen, and device logs",
+        )
+        if (rendered[R.id.privacy] == lines) return
+        rendered[R.id.privacy] = lines
+        binding.privacy.removeAllViews()
+        lines.forEach { l ->
+            val line = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                setPadding(0, dp(5), 0, dp(5))
+            }
+            line.addView(View(this).apply {
+                background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(color(R.color.ui_accent2)) }
+            }, LinearLayout.LayoutParams(dp(6), dp(6)).apply { topMargin = dp(7); marginEnd = dp(12) })
+            line.addView(text(l, 13f, R.color.ui_text2))
+            binding.privacy.addView(line)
+        }
+    }
+
+    /** Two columns side by side on a wide screen (a TV, a tablet in landscape), stacked on a phone. */
+    private fun layoutColumns() {
+        if (resources.configuration.screenWidthDp < 720) return
+        binding.columns.orientation = LinearLayout.HORIZONTAL
+        binding.col1.layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+            .apply { marginEnd = dp(16) }
+        binding.col2.layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+        binding.page.setPadding(dp(32), dp(24), dp(32), dp(24))
+    }
+
+    // ── What the device knows ────────────────────────────────────────────────────
+
+    private fun deviceName(): String {
+        val maker = Build.MANUFACTURER.replaceFirstChar { it.uppercase() }
+        return if (Build.MODEL.startsWith(Build.MANUFACTURER, ignoreCase = true)) Build.MODEL else "$maker ${Build.MODEL}"
+    }
+
+    private fun serverHost(): String =
+        config.serverUrl.takeIf { it.isNotBlank() }?.let { Uri.parse(it).host } ?: "Not set"
+
+    private fun network(): String = runCatching {
+        val cm = getSystemService(ConnectivityManager::class.java)
+        val net = cm.activeNetwork ?: return "Offline"
+        val caps = cm.getNetworkCapabilities(net)
+        val kind = when {
+            caps == null -> "Connected"
+            caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) -> "Ethernet"
+            caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> wifiName()?.let { "Wi-Fi · $it" } ?: "Wi-Fi"
+            caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> "Mobile data"
+            else -> "Connected"
+        }
+        val ip = cm.getLinkProperties(net)?.linkAddresses?.map { it.address }?.firstOrNull { it is Inet4Address }
+        if (ip != null) "$kind · ${ip.hostAddress}" else kind
+    }.getOrDefault("Unknown")
+
+    /** The SSID, when the platform lets us read it (it needs location on newer Android). */
+    @Suppress("DEPRECATION")
+    private fun wifiName(): String? = runCatching {
+        applicationContext.getSystemService(WifiManager::class.java).connectionInfo?.ssid
+            ?.trim('"')?.takeIf { it.isNotBlank() && it != "<unknown ssid>" }
+    }.getOrNull()
+
+    private fun storage(): String = runCatching {
+        val st = StatFs(Environment.getDataDirectory().path)
+        "${gb(st.availableBytes)} free of ${gb(st.totalBytes)}"
+    }.getOrDefault("Unknown")
+
+    /** Battery level, or null on a mains-powered box (TV sticks report no battery present). */
+    private fun battery(): String? {
+        val i = registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED)) ?: return null
+        if (!i.getBooleanExtra(BatteryManager.EXTRA_PRESENT, false)) return "None · mains powered"
+        val level = i.getIntExtra(BatteryManager.EXTRA_LEVEL, -1)
+        val scale = i.getIntExtra(BatteryManager.EXTRA_SCALE, 100)
+        if (level < 0 || scale <= 0) return null
+        val status = i.getIntExtra(BatteryManager.EXTRA_STATUS, -1)
+        val charging = status == BatteryManager.BATTERY_STATUS_CHARGING || status == BatteryManager.BATTERY_STATUS_FULL
+        return "${level * 100 / scale} %" + if (charging) " · charging" else ""
+    }
+
+    private fun kiosk(): String = when (config.kioskMode) {
+        "browser" -> "Browser · " + (Uri.parse(config.kioskUrl).host ?: config.kioskUrl.ifBlank { "no URL" })
+        else -> {
+            val main = config.kioskPackage.ifBlank { null }?.let(::appLabel) ?: "Launcher"
+            val extra = config.kioskExtraPackages().size
+            "App · $main" + if (extra > 0) " +$extra" else ""
+        }
+    }
+
+    private fun appLabel(pkg: String): String = runCatching {
+        packageManager.getApplicationLabel(packageManager.getApplicationInfo(pkg, 0)).toString()
+    }.getOrDefault(pkg)
+
+    private fun updatePolicy(): String {
+        val p = runCatching { JSONObject(config.updatePolicyJson) }.getOrNull() ?: return "Device default"
+        return when (p.optString("mode", "default")) {
+            "automatic" -> "Install automatically"
+            "windowed" -> "Install ${clock(p.optInt("window_start", 0))}–${clock(p.optInt("window_end", 240))}"
+            "postpone" -> "Postponed up to 30 days"
+            else -> "Device default"
+        } + if ((p.optJSONArray("freeze_periods")?.length() ?: 0) > 0) " · freeze periods" else ""
+    }
+
+    private fun managedNetwork(): String {
+        val n = runCatching { JSONObject(config.networkConfigJson) }.getOrNull() ?: return "None"
+        val parts = buildList {
+            n.optJSONArray("wifi_networks")?.length()?.takeIf { it > 0 }?.let { add(plural(it, "Wi-Fi network")) }
+            n.optJSONArray("ca_certs")?.length()?.takeIf { it > 0 }?.let { add(plural(it, "CA certificate")) }
+            n.optJSONObject("vpn")?.optString("package")?.takeIf { it.isNotBlank() }?.let { add("VPN") }
+        }
+        return parts.joinToString(" · ").ifBlank { "None" }
+    }
+
+    // ── Small helpers ────────────────────────────────────────────────────────────
+
+    private fun jsonArrayLength(json: String): Int = runCatching { org.json.JSONArray(json).length() }.getOrDefault(0)
+
+    private fun plural(n: Int, what: String) = "$n $what" + if (n == 1) "" else "s"
+
+    private fun clock(minutes: Int) = "%02d:%02d".format((minutes / 60) % 24, minutes % 60)
+
+    private fun gb(bytes: Long) = "%.1f GB".format(bytes / 1e9)
+
+    private fun ago(atMs: Long): String {
+        if (atMs <= 0) return "never"
+        val s = ((System.currentTimeMillis() - atMs) / 1000).coerceAtLeast(0)
+        return when {
+            s < 5 -> "just now"
+            s < 60 -> "$s s ago"
+            s < 3600 -> "${s / 60} min ago"
+            s < 86_400 -> "${s / 3600} h ago"
+            else -> "${s / 86_400} d ago"
+        }
+    }
+
+    private fun duration(ms: Long): String {
+        val s = ms / 1000
+        return when {
+            s < 60 -> "$s s"
+            s < 3600 -> "${s / 60} min"
+            s < 86_400 -> "${s / 3600} h ${(s % 3600) / 60} min"
+            else -> "${s / 86_400} d ${(s % 86_400) / 3600} h"
+        }
+    }
+
+    /** .cc-tag: a pill with a 10% wash of the tone and its text in the tone. */
+    private fun styleTag(v: TextView, label: String, tone: Tone) {
+        v.text = label
+        v.setTextColor(fg(tone))
+        v.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+        v.typeface = ResourcesCompat.getFont(this, R.font.poppins_semibold)
+        v.setPadding(dp(10), dp(4), dp(10), dp(4))
+        v.background = GradientDrawable().apply { cornerRadius = dp(40).toFloat(); setColor(bg(tone)) }
+    }
+
+    private fun fg(t: Tone) = color(when (t) {
+        Tone.OK -> R.color.ui_ok
+        Tone.WARN -> R.color.ui_warn
+        Tone.BAD -> R.color.ui_bad
+        Tone.INFO -> R.color.ui_info
+        Tone.NEUTRAL -> R.color.ui_muted
+    })
+
+    private fun bg(t: Tone) = color(when (t) {
+        Tone.OK -> R.color.ui_ok_bg
+        Tone.WARN -> R.color.ui_warn_bg
+        Tone.BAD -> R.color.ui_bad_bg
+        Tone.INFO -> R.color.ui_info_bg
+        Tone.NEUTRAL -> R.color.ui_neutral_bg
+    })
+
+    private fun text(s: String, sp: Float, colorRes: Int, weight: Int = 400) = TextView(this).apply {
+        text = s
+        setTextSize(TypedValue.COMPLEX_UNIT_SP, sp)
+        setTextColor(color(colorRes))
+        typeface = ResourcesCompat.getFont(this@MainActivity,
+            if (weight >= 500) R.font.poppins_medium else R.font.poppins_regular)
+        includeFontPadding = false
+        setLineSpacing(dp(3).toFloat(), 1f)
+    }
+
+    private fun color(res: Int) = ContextCompat.getColor(this, res)
+
+    private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
 
     private fun maybeRequestNotifPermission() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
@@ -150,5 +519,23 @@ class MainActivity : AppCompatActivity() {
         ) {
             notifPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
+    }
+
+    private companion object {
+        /** Capability keys as an operator would say them. */
+        val CAPABILITY_NAMES = mapOf(
+            "kiosk" to "Kiosk",
+            "install_apk" to "App install",
+            "uninstall" to "App removal",
+            "self_update" to "Agent updates",
+            "reboot" to "Reboot",
+            "wipe" to "Remote wipe",
+            "config" to "Remote config",
+            "telemetry" to "Health reporting",
+            "shell" to "Shell",
+            "screen_capture" to "Remote screen",
+            "input" to "Remote input",
+            "logcat" to "Device logs",
+        )
     }
 }

@@ -1,14 +1,73 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- AIO MDM brand: coral #F9674E → periwinkle #7A80F6 (same as the dashboard icon) -->
-    <color name="aio_coral">#F9674E</color>
-    <color name="aio_periwinkle">#7A80F6</color>
-    <color name="aio_ink">#161925</color>
-    <color name="aio_bg">#FFFFFF</color>
+    <!-- AIO MDM brand: coral #F9674E → periwinkle #7A80F6 (same as the dashboard icon).
+         Surfaces, text and tags use the dashboard tokens in colors_ui. -->
 
     <style name="Theme.MdmAgent" parent="Theme.Material3.DayNight.NoActionBar">
-        <item name="colorPrimary">@color/aio_coral</item>
-        <item name="colorSecondary">@color/aio_periwinkle</item>
-        <item name="android:statusBarColor">@color/aio_ink</item>
+        <item name="colorPrimary">@color/ui_accent</item>
+        <item name="colorSecondary">@color/ui_accent2</item>
+        <item name="android:windowBackground">@color/ui_bg</item>
+        <item name="android:statusBarColor">@color/ui_bg</item>
+        <item name="android:navigationBarColor">@color/ui_bg</item>
+        <item name="android:windowLightStatusBar">@bool/ui_light_bars</item>
+        <item name="android:windowLightNavigationBar">@bool/ui_light_bars</item>
+        <item name="android:fontFamily">@font/poppins</item>
+        <item name="fontFamily">@font/poppins</item>
+    </style>
+
+    <!-- Type, from the dashboard's scale: page title, card title (h2), body, meta. -->
+    <style name="Ui.Text" parent="">
+        <item name="android:fontFamily">@font/poppins</item>
+        <item name="android:textColor">@color/ui_text</item>
+        <item name="android:textSize">14sp</item>
+        <item name="android:includeFontPadding">false</item>
+        <item name="android:lineSpacingExtra">3sp</item>
+    </style>
+    <style name="Ui.Text.Title">
+        <item name="android:textSize">22sp</item>
+        <item name="android:textFontWeight">600</item>
+        <item name="android:letterSpacing">-0.01</item>
+    </style>
+    <style name="Ui.Text.H2">
+        <item name="android:textSize">15sp</item>
+        <item name="android:textFontWeight">600</item>
+    </style>
+    <style name="Ui.Text.Meta">
+        <item name="android:textSize">12.5sp</item>
+        <item name="android:textColor">@color/ui_muted</item>
+    </style>
+    <style name="Ui.Text.Kicker">
+        <item name="android:textSize">11sp</item>
+        <item name="android:textColor">@color/ui_faint</item>
+        <item name="android:textFontWeight">600</item>
+        <item name="android:letterSpacing">0.08</item>
+        <item name="android:textAllCaps">true</item>
+    </style>
+
+    <style name="Ui.Card" parent="">
+        <item name="android:background">@drawable/bg_card</item>
+        <item name="android:orientation">vertical</item>
+        <item name="android:padding">20dp</item>
+    </style>
+
+    <style name="Ui.Button" parent="">
+        <item name="android:fontFamily">@font/poppins</item>
+        <item name="android:textFontWeight">600</item>
+        <item name="android:textSize">14sp</item>
+        <item name="android:gravity">center</item>
+        <item name="android:minHeight">44dp</item>
+        <item name="android:paddingStart">22dp</item>
+        <item name="android:paddingEnd">22dp</item>
+        <item name="android:focusable">true</item>
+        <item name="android:clickable">true</item>
+        <item name="android:includeFontPadding">false</item>
+    </style>
+    <style name="Ui.Button.Primary">
+        <item name="android:background">@drawable/bg_btn_primary</item>
+        <item name="android:textColor">@color/ui_on_accent</item>
+    </style>
+    <style name="Ui.Button.Secondary">
+        <item name="android:background">@drawable/bg_btn_secondary</item>
+        <item name="android:textColor">@color/ui_text</item>
     </style>
 </resources>
