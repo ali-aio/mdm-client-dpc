@@ -18,8 +18,8 @@ android {
         applicationId = "aio.app.mdmclient.dpc"
         minSdk = 28
         targetSdk = 35
-        versionCode = 11
-        versionName = "0.2.3"
+        versionCode = 12
+        versionName = "0.2.4"
 
         buildConfigField("String", "DEFAULT_SERVER_URL", "\"$mdmServerUrl\"")
         buildConfigField("String", "DEFAULT_API_KEY", "\"$mdmApiKey\"")
@@ -96,4 +96,6 @@ dependencies {
     // JVM unit tests: the decisions that must not be wrong (UpdateCheck) are kept free
     // of Android types precisely so they can be tested without a device or Robolectric.
     testImplementation("junit:junit:4.13.2")
+    // The real org.json: android.jar's copy is stubs that throw under a JVM test.
+    testImplementation("org.json:json:20240303")
 }

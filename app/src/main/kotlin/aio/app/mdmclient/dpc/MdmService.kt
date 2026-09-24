@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.Build
+import android.os.SystemClock
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.lifecycle.LifecycleService
@@ -18,6 +19,7 @@ import aio.app.mdmclient.dpc.net.Acker
 import aio.app.mdmclient.dpc.net.ApiClient
 import aio.app.mdmclient.dpc.net.CommandExecutor
 import aio.app.mdmclient.dpc.net.Telemetry
+import aio.app.mdmclient.dpc.net.TelemetryDelta
 import aio.app.mdmclient.dpc.net.WsClient
 import okio.ByteString
 import kotlinx.coroutines.Dispatchers
@@ -25,14 +27,17 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlin.random.Random
 import org.json.JSONObject
 
 /**
  * Long-running foreground service: hosts the periodic HTTP checkin loop and the live WebSocket,
  * routes server messages to [CommandExecutor], and acks results.
  *
- * The WS carries realtime push (commands, config, pings); the HTTP checkin runs on an interval as
- * a safety net that also fetches config and reports full telemetry / app inventory.
+ * The WS carries realtime push (commands, config, pings) and, while it is up, telemetry as
+ * deltas ([TelemetryDelta]) — the firmware client's model. The HTTP check-in is the full
+ * keyframe and app inventory: every [HTTP_SAFETY_NET_MS] while the socket is live, every
+ * tick while it is not.
  */
 class MdmService : LifecycleService(), WsClient.Listener, Acker {
 
@@ -48,6 +53,8 @@ class MdmService : LifecycleService(), WsClient.Listener, Acker {
     @Volatile private var lastKnownAppsHash: String? = null
     private var reconnectAttempt = 0
     private var reconnectJob: Job? = null
+    private val delta = TelemetryDelta()
+    @Volatile private var lastHttpCheckinAt = 0L
 
     override fun onCreate() {
         super.onCreate()
@@ -173,7 +180,8 @@ class MdmService : LifecycleService(), WsClient.Listener, Acker {
     private fun startCheckinLoop() {
         lifecycleScope.launch(Dispatchers.IO) {
             while (isActive && wantConnected) {
-                doCheckin()
+                val httpDue = SystemClock.elapsedRealtime() - lastHttpCheckinAt >= HTTP_SAFETY_NET_MS
+                if (!ws.isOpen || httpDue || lastHttpCheckinAt == 0L) doCheckin() else pushTelemetry()
                 delay(config.checkinIntervalSeconds * 1000L)
             }
         }
@@ -184,9 +192,12 @@ class MdmService : LifecycleService(), WsClient.Listener, Acker {
         val currentHash = Telemetry.appsHash(this)
         val includeApps = currentHash != lastKnownAppsHash
         val payload = Telemetry.buildCheckin(this, includeApps)
+        lastHttpCheckinAt = SystemClock.elapsedRealtime()
         val resp = api.checkin(payload)
         AgentStatus.checkinResult(resp != null, api.lastError)
         if (resp == null) return
+        // The server replaced latest_extra with this snapshot: it is the new delta baseline.
+        delta.remember(payload)
         lastKnownAppsHash = currentHash
         if (resp.optBoolean("send_apps", false) && !includeApps) {
             // Server wants the full list next time regardless of hash.
@@ -200,14 +211,14 @@ class MdmService : LifecycleService(), WsClient.Listener, Acker {
     override fun onOpen() {
         AgentStatus.wsConnected = true
         reconnectAttempt = 0
-        sendTelemetry(includeApps = false)
+        sendKeyframe()
     }
 
     override fun onMessage(msg: JSONObject) {
         when (msg.optString("type")) {
             "command" -> executor.handleCommand(msg)
             "config" -> executor.applyConfig(msg)
-            "telemetry_request" -> sendTelemetry(includeApps = false)
+            "telemetry_request" -> sendKeyframe()
             "ping_request" -> sendWs(JSONObject().apply {
                 put("type", "pong_response")
                 put("nonce", msg.opt("nonce"))
@@ -232,7 +243,10 @@ class MdmService : LifecycleService(), WsClient.Listener, Acker {
     override fun onClosed(reason: String) {
         AgentStatus.wsConnected = false
         if (!wantConnected) return
-        val delayMs = BACKOFF_MS[reconnectAttempt.coerceIn(0, BACKOFF_MS.lastIndex)]
+        // Equal jitter, as the firmware client does: a server restart drops the whole fleet
+        // at once, and without it every device retries at 1s, 2s, 4s… in lockstep.
+        val base = BACKOFF_MS[reconnectAttempt.coerceIn(0, BACKOFF_MS.lastIndex)]
+        val delayMs = base / 2 + Random.nextLong(base / 2 + 1)
         reconnectAttempt++
         Log.i(TAG, "WS closed ($reason); reconnecting in ${delayMs}ms")
         reconnectJob?.cancel()
@@ -287,12 +301,29 @@ class MdmService : LifecycleService(), WsClient.Listener, Acker {
         lifecycleScope.launch(Dispatchers.IO) { api.ackCommand(commandId, body) }
     }
 
-    private fun sendTelemetry(includeApps: Boolean) {
-        lifecycleScope.launch(Dispatchers.IO) {
-            val payload = Telemetry.buildCheckin(this@MdmService, includeApps)
-            payload.put("type", "telemetry")
-            ws.send(payload)
+    /** The whole snapshot over the socket: on (re)connect, and when the server asks for it. */
+    private fun sendKeyframe() {
+        delta.forceKeyframe = true
+        lifecycleScope.launch(Dispatchers.IO) { pushTelemetry() }
+    }
+
+    /** One telemetry tick over the WS: a delta, or nothing when nothing changed. */
+    @Synchronized
+    private fun pushTelemetry() {
+        if (!ws.isOpen) return
+        val full = Telemetry.buildCheckin(this, includeApps = false)
+        val frame = delta.frameFor(full)
+        if (frame != null) {
+            frame.put("type", "telemetry")
+            if (!ws.send(frame)) {
+                delta.forceKeyframe = true // the next send re-establishes the baseline
+                return
+            }
+            delta.remember(full)
         }
+        // Sent, or skipped because the server already has it: either way the device is
+        // reporting over a live link, which is what the status screen's check-in row means.
+        AgentStatus.checkinResult(true, null)
     }
 
     override fun onDestroy() {
@@ -330,6 +361,8 @@ class MdmService : LifecycleService(), WsClient.Listener, Acker {
         private const val TAG = "MdmService"
         private const val NOTIF_ID = 1001
         private val BACKOFF_MS = longArrayOf(1000, 2000, 4000, 8000, 30000)
+        /** Full HTTP keyframe cadence while the WS is live (the firmware client's safety net). */
+        private const val HTTP_SAFETY_NET_MS = 5 * 60_000L
 
         /** Status screen's "Check in now": one check-in right away, outside the interval. */
         const val ACTION_CHECKIN_NOW = "aio.app.mdmclient.dpc.CHECKIN_NOW"
