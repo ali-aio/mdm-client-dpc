@@ -9,9 +9,9 @@ import org.json.JSONObject
  * The baseline is what the server was last told. A WS frame carries only the gated keys that
  * changed since then, plus the volatile set; the server merges it into latest_extra. When no
  * gated key, battery_pct or temperature band moved, nothing is sent at all. A keyframe (the
- * whole payload) goes out on WS (re)connect, when the server asks for telemetry, and after a
- * failed send; the periodic HTTP check-in is the keyframe that replaces latest_extra outright
- * and clears keys the device stopped reporting.
+ * whole payload) goes out on WS (re)connect and after a failed send; the periodic HTTP
+ * check-in is the keyframe that replaces latest_extra outright and clears keys the device
+ * stopped reporting.
  *
  * Unlike the firmware client, every key not listed as volatile is gated, rather than a
  * hand-kept gated list: this agent's extra grows with its capabilities, and a new key

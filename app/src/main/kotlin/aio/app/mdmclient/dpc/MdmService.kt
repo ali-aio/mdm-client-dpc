@@ -218,7 +218,9 @@ class MdmService : LifecycleService(), WsClient.Listener, Acker {
         when (msg.optString("type")) {
             "command" -> executor.handleCommand(msg)
             "config" -> executor.applyConfig(msg)
-            "telemetry_request" -> sendKeyframe()
+            // The server asks on every check-in interval, so this is a delta tick like the
+            // firmware client's, not a keyframe — a keyframe here was a full snapshot every 30 s.
+            "telemetry_request" -> lifecycleScope.launch(Dispatchers.IO) { pushTelemetry() }
             "ping_request" -> sendWs(JSONObject().apply {
                 put("type", "pong_response")
                 put("nonce", msg.opt("nonce"))
@@ -301,7 +303,7 @@ class MdmService : LifecycleService(), WsClient.Listener, Acker {
         lifecycleScope.launch(Dispatchers.IO) { api.ackCommand(commandId, body) }
     }
 
-    /** The whole snapshot over the socket: on (re)connect, and when the server asks for it. */
+    /** The whole snapshot over the socket, on (re)connect: it re-establishes the baseline. */
     private fun sendKeyframe() {
         delta.forceKeyframe = true
         lifecycleScope.launch(Dispatchers.IO) { pushTelemetry() }
