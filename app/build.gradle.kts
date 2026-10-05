@@ -18,8 +18,8 @@ android {
         applicationId = "aio.app.mdmclient.dpc"
         minSdk = 28
         targetSdk = 35
-        versionCode = 13
-        versionName = "0.2.5"
+        versionCode = 14
+        versionName = "0.2.6"
 
         buildConfigField("String", "DEFAULT_SERVER_URL", "\"$mdmServerUrl\"")
         buildConfigField("String", "DEFAULT_API_KEY", "\"$mdmApiKey\"")
