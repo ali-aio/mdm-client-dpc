@@ -45,11 +45,17 @@ object Telemetry {
     }
 
     fun buildCheckin(ctx: Context, includeApps: Boolean): JSONObject {
-        // A TV box / dongle has no battery: its broadcast says present=false and carries
-        // 0% and 0 °C, which the server would show as a flat battery at freezing point.
-        // Without a pack, send no battery fields at all.
+        // A TV box / dongle / kiosk / KDS / POS has no battery: its broadcast is supposed to
+        // say present=false, carrying 0% and 0 °C which the server would otherwise show as a
+        // flat battery at freezing point. In practice several of these boards' battery HAL
+        // misreports present=true with a synthetic level regardless — confirmed on the HK1
+        // RBOX D8 (0%), Sunmi D3 Pro and D2s KDS (50% on both, unchanging) during the 2026-10-05
+        // lab pass. EXTRA_PRESENT alone can't be trusted on this hardware, so this is defense
+        // in depth matching ui/MainActivity's default (false, not true) rather than a full
+        // fix — the server's CapsForDevice is the authoritative no-battery signal by device
+        // class and hides/relabels the dashboard's battery widget independent of this value.
         val batteryIntent = ctx.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
-            ?.takeIf { it.getBooleanExtra(BatteryManager.EXTRA_PRESENT, true) }
+            ?.takeIf { it.getBooleanExtra(BatteryManager.EXTRA_PRESENT, false) }
         val battery = readBattery(batteryIntent)
         val obj = JSONObject().apply {
             put("serial_number", DeviceIdentity.serial(ctx))
