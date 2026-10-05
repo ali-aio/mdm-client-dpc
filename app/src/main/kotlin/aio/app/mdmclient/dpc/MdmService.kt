@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.Build
+import android.os.Process
 import android.os.SystemClock
 import android.util.Log
 import androidx.core.app.NotificationCompat
@@ -55,6 +56,16 @@ class MdmService : LifecycleService(), WsClient.Listener, Acker {
     private var reconnectJob: Job? = null
     private val delta = TelemetryDelta()
     @Volatile private var lastHttpCheckinAt = 0L
+    // Touched on every sign the service's checkin loop and WS reader are actually making
+    // progress (loop tick, inbound WS message). A shell command starting a persistent `sh`
+    // process via ProcessBuilder forks this process — on at least two of the device families
+    // tested (RBOX, Sunmi KDS), that intermittently wedges the whole process with no
+    // exception or crash, so nothing else here can detect it from the inside. The watchdog
+    // below is the backstop: if nothing has ticked in watchdogTimeoutMs, the process is
+    // killed outright so Android restarts it (START_STICKY) rather than leaving a device
+    // silently dark until someone finds it and reboots it by hand.
+    @Volatile private var lastProgressAtMs = SystemClock.elapsedRealtime()
+    private var watchdogJob: Job? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -169,6 +180,22 @@ class MdmService : LifecycleService(), WsClient.Listener, Acker {
         wantConnected = true
         connectWs()
         startCheckinLoop()
+        startWatchdog()
+    }
+
+    /** Self-heal a wedged process — see [lastProgressAtMs]. */
+    private fun startWatchdog() {
+        watchdogJob?.cancel()
+        watchdogJob = lifecycleScope.launch(Dispatchers.IO) {
+            while (isActive && wantConnected) {
+                delay(WATCHDOG_CHECK_MS)
+                val stuckFor = SystemClock.elapsedRealtime() - lastProgressAtMs
+                if (stuckFor >= WATCHDOG_TIMEOUT_MS) {
+                    Log.e(TAG, "watchdog: no progress in ${stuckFor}ms, killing process to recover")
+                    Process.killProcess(Process.myPid())
+                }
+            }
+        }
     }
 
     private fun connectWs() {
@@ -180,6 +207,7 @@ class MdmService : LifecycleService(), WsClient.Listener, Acker {
     private fun startCheckinLoop() {
         lifecycleScope.launch(Dispatchers.IO) {
             while (isActive && wantConnected) {
+                lastProgressAtMs = SystemClock.elapsedRealtime()
                 val httpDue = SystemClock.elapsedRealtime() - lastHttpCheckinAt >= HTTP_SAFETY_NET_MS
                 if (!ws.isOpen || httpDue || lastHttpCheckinAt == 0L) doCheckin() else pushTelemetry()
                 delay(config.checkinIntervalSeconds * 1000L)
@@ -215,6 +243,7 @@ class MdmService : LifecycleService(), WsClient.Listener, Acker {
     }
 
     override fun onMessage(msg: JSONObject) {
+        lastProgressAtMs = SystemClock.elapsedRealtime()
         when (msg.optString("type")) {
             "command" -> executor.handleCommand(msg)
             "config" -> executor.applyConfig(msg)
@@ -332,6 +361,7 @@ class MdmService : LifecycleService(), WsClient.Listener, Acker {
         wantConnected = false
         AgentStatus.wsConnected = false
         reconnectJob?.cancel()
+        watchdogJob?.cancel()
         logcat.stopAll()
         ws.close()
         if (AgentBus.acker === this) AgentBus.acker = null
@@ -365,6 +395,10 @@ class MdmService : LifecycleService(), WsClient.Listener, Acker {
         private val BACKOFF_MS = longArrayOf(1000, 2000, 4000, 8000, 30000)
         /** Full HTTP keyframe cadence while the WS is live (the firmware client's safety net). */
         private const val HTTP_SAFETY_NET_MS = 5 * 60_000L
+        /** Watchdog poll cadence. */
+        private const val WATCHDOG_CHECK_MS = 30_000L
+        /** No checkin-loop tick and no inbound WS message in this long = treat as wedged. */
+        private const val WATCHDOG_TIMEOUT_MS = 3 * 60_000L
 
         /** Status screen's "Check in now": one check-in right away, outside the interval. */
         const val ACTION_CHECKIN_NOW = "aio.app.mdmclient.dpc.CHECKIN_NOW"

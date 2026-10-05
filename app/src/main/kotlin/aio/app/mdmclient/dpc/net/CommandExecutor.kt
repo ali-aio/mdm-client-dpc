@@ -1,6 +1,7 @@
 package aio.app.mdmclient.dpc.net
 
 import android.content.Context
+import android.content.Intent
 import android.util.Log
 import aio.app.mdmclient.dpc.AgentConfig
 import aio.app.mdmclient.dpc.DeviceOwner
@@ -15,6 +16,7 @@ import aio.app.mdmclient.dpc.device.NetworkProvisioner
 import aio.app.mdmclient.dpc.device.UpdatePolicyManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.json.JSONObject
 import java.util.Collections
@@ -175,13 +177,30 @@ class CommandExecutor(
             acker.ackCommand(id, "failed", output = "not device owner")
             return
         }
+        // dpm.reboot() requires no activity in the foreground to actually take effect; on at
+        // least one Sunmi unit it otherwise returned normally (no exception) and never
+        // rebooted at all, with no way to tell from here. Send the device home first so a
+        // kiosk screen or our own status screen doesn't silently block it.
+        sendHome()
         // Ack before rebooting; the server confirms completion on the device's reconnect.
         acker.ackCommand(id, "completed", output = "rebooting")
-        try {
-            deviceOwner.dpm.reboot(deviceOwner.admin)
-        } catch (e: Exception) {
-            acker.ackCommand(id, "failed", output = "reboot rejected: ${e.message}")
+        scope.launch(Dispatchers.Default) {
+            delay(400) // let the home transition land before the foreground-activity check
+            try {
+                deviceOwner.dpm.reboot(deviceOwner.admin)
+            } catch (e: Exception) {
+                acker.ackCommand(id, "failed", output = "reboot rejected: ${e.message}")
+            }
         }
+    }
+
+    private fun sendHome() {
+        runCatching {
+            ctx.startActivity(Intent(Intent.ACTION_MAIN).apply {
+                addCategory(Intent.CATEGORY_HOME)
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            })
+        }.onFailure { Log.w(TAG, "sendHome failed: ${it.message}") }
     }
 
     private fun wipe(id: String) {
