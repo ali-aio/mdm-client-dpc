@@ -17,6 +17,7 @@ import aio.app.mdmclient.dpc.device.ScreenControl
 import aio.app.mdmclient.dpc.device.AgentUpdater
 import aio.app.mdmclient.dpc.device.LogcatManager
 import aio.app.mdmclient.dpc.net.Acker
+import aio.app.mdmclient.dpc.net.AdbTunnel
 import aio.app.mdmclient.dpc.net.ApiClient
 import aio.app.mdmclient.dpc.net.CommandExecutor
 import aio.app.mdmclient.dpc.net.Telemetry
@@ -47,6 +48,7 @@ class MdmService : LifecycleService(), WsClient.Listener, Acker {
     private lateinit var api: ApiClient
     private lateinit var ws: WsClient
     private lateinit var executor: CommandExecutor
+    private lateinit var adbTunnel: AdbTunnel
     private lateinit var logcat: LogcatManager
     private lateinit var serial: String
 
@@ -74,6 +76,7 @@ class MdmService : LifecycleService(), WsClient.Listener, Acker {
         api = ApiClient(config).also { it.onUnauthorized = { onUnauthorized() } }
         ws = WsClient(config, this)
         executor = CommandExecutor(this, deviceOwner, this, lifecycleScope)
+        adbTunnel = AdbTunnel(config)
         deviceOwner.ensureIdentityAccess() // grant READ_PHONE_STATE before resolving the serial
         deviceOwner.ensureAutoTime()
         Grants.ensureAccessibility(this)
@@ -261,6 +264,9 @@ class MdmService : LifecycleService(), WsClient.Listener, Acker {
             // the same as one that never woke.
             "wake_screen" -> ScreenControl.wake(this)
             "start_capture" -> startCapture(msg)
+            // An admin's `adb connect` reached the server: carry adbd to it (AdbTunnel).
+            "adb_tunnel_open" -> adbTunnel.open(serial, msg)
+            "adb_tunnel_close" -> adbTunnel.closeSession(msg.optString("session"))
             "stop_capture" -> ScreenCaptureService.stop(this)
             "input_event" -> AgentBus.input?.handle(msg)
                 ?: Log.w(TAG, "input_event ignored — accessibility service not enabled")

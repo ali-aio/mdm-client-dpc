@@ -161,6 +161,9 @@ object Telemetry {
             )
             extra.put("adb_enabled", adb == 1)
         }
+        // Same key the firmware client reports: whether adbd listens on the network. We can't
+        // read service.adb.tcp.port from an app, so ask the port itself (loopback, 300 ms).
+        runCatching { extra.put("adb_tcp", AdbTunnel.adbdListening()) }
         runCatching {
             val dpm = ctx.getSystemService(Context.DEVICE_POLICY_SERVICE)
                 as android.app.admin.DevicePolicyManager
