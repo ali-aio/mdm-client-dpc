@@ -60,6 +60,7 @@ class MdmService : LifecycleService(), WsClient.Listener, Acker {
     @Volatile private var lastHttpCheckinAt = 0L
     /** Set by a server "wake" frame so the next poll tick runs even with a healthy socket. */
     private val pollCommandsNow = java.util.concurrent.atomic.AtomicBoolean(false)
+    @Volatile private var lastCommandPollAt = 0L
     // Touched on every sign the service's checkin loop and WS reader are actually making
     // progress (loop tick, inbound WS message). A shell command starting a persistent `sh`
     // process via ProcessBuilder forks this process — on at least two of the device families
@@ -235,7 +236,13 @@ class MdmService : LifecycleService(), WsClient.Listener, Acker {
             while (isActive && wantConnected) {
                 try {
                     val nudged = pollCommandsNow.getAndSet(false)
-                    if (!ws.isOpen || nudged) {
+                    // An open socket is not proof that frames arrive: a half-open one reads
+                    // as open and swallows every wake, which is exactly how a device ends up
+                    // queued-but-untouched. Polling at a floor cadence even then makes that
+                    // the worst case — minutes, not forever.
+                    val floorDue = SystemClock.elapsedRealtime() - lastCommandPollAt >= COMMAND_POLL_FLOOR_MS
+                    if (!ws.isOpen || nudged || floorDue) {
+                        lastCommandPollAt = SystemClock.elapsedRealtime()
                         api.fetchPendingCommands(serial)?.let { runHttpCommands(it) }
                     }
                 } catch (e: Exception) {
@@ -475,6 +482,8 @@ class MdmService : LifecycleService(), WsClient.Listener, Acker {
         // Command poll cadence while there is no usable socket. Telemetry keeps its own
         // five-minute keyframe: this dial is command latency, nothing else.
         private const val COMMAND_POLL_MS = 60_000L
+        /** Poll at least this often even with an open socket — see the floor check. */
+        private const val COMMAND_POLL_FLOOR_MS = 5 * 60_000L
         /** Watchdog poll cadence. */
         private const val WATCHDOG_CHECK_MS = 30_000L
         /** No checkin-loop tick and no inbound WS message in this long = treat as wedged. */
