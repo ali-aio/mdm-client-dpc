@@ -58,6 +58,7 @@ class CommandExecutor(
             "uninstall" -> uninstall(id, payload)
             "reboot" -> reboot(id)
             "wipe" -> wipe(id)
+            "unenroll" -> unenroll(id)
             "config" -> applyConfigCommand(id, payload)
             "screenshot" -> screenshot(id)
             "shell" -> shellCmd(id, frame, payload)
@@ -214,6 +215,50 @@ class CommandExecutor(
         } catch (e: Exception) {
             acker.ackCommand(id, "failed", output = "wipe rejected: ${e.message}")
         }
+    }
+
+    /**
+     * Hand the device back: drop Device Owner, forget the server, stop reporting — and keep
+     * everything that is on the device. The opposite of [wipe], for a unit leaving the fleet
+     * rather than being erased.
+     *
+     * The ack goes first, because every step after it takes away the means of sending one.
+     *
+     * Removing this app is best effort and usually will not happen on its own: Android
+     * refuses to uninstall the active Device Owner, and once Device Owner is cleared a silent
+     * uninstall is no longer ours to make — the dialog needs somebody at the screen. So the
+     * agent makes itself inert instead (no server, no key, and [AgentConfig.unenrolled] set so
+     * a reboot cannot start it again) and offers the uninstall for whoever is standing there.
+     */
+    private fun unenroll(id: String) {
+        acker.ackCommand(id, "completed", output = "unenrolling")
+        val wasOwner = deviceOwner.isDeviceOwner
+        if (wasOwner) {
+            try {
+                // Leave kiosk first: lock task outlives Device Owner on some builds, and a
+                // device stuck in a locked app with no way to manage it is worse than enrolled.
+                kiosk.apply(enabled = false, allowedPackages = emptyList())
+            } catch (e: Exception) {
+                Log.w(TAG, "kiosk off before unenroll: ${e.message}")
+            }
+            try {
+                deviceOwner.dpm.clearDeviceOwnerApp(ctx.packageName)
+            } catch (e: Exception) {
+                Log.w(TAG, "clearDeviceOwnerApp: ${e.message}")
+            }
+        }
+        config.forgetServer()
+        Log.i(TAG, "unenrolled (was device owner: $wasOwner)")
+        try {
+            ctx.startActivity(
+                android.content.Intent(android.content.Intent.ACTION_DELETE)
+                    .setData(android.net.Uri.parse("package:${ctx.packageName}"))
+                    .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+            )
+        } catch (e: Exception) {
+            Log.i(TAG, "no uninstall prompt: ${e.message}")
+        }
+        ctx.stopService(android.content.Intent(ctx, aio.app.mdmclient.dpc.MdmService::class.java))
     }
 
     /**

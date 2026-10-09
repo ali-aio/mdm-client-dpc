@@ -24,6 +24,8 @@ object Capabilities {
         "self_update",
         "reboot",
         "wipe",
+        // Hand the device back: drop Device Owner and stop reporting, keeping the data.
+        "unenroll",
         "config",
         "telemetry",
         // Implemented by ShellSession, but always the unprivileged app UID — so it is

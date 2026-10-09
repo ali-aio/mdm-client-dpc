@@ -530,6 +530,7 @@ class MainActivity : AppCompatActivity() {
             "self_update" to "Agent updates",
             "reboot" to "Reboot",
             "wipe" to "Remote wipe",
+            "unenroll" to "Unenroll",
             "config" to "Remote config",
             "telemetry" to "Health reporting",
             "shell" to "Shell",

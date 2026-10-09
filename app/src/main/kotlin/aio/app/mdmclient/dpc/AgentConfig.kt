@@ -129,6 +129,26 @@ class AgentConfig private constructor(private val ctx: Context) {
         get() = prefs.getString(KEY_PENDING_UPDATE, "")!!
         set(value) = prefs.edit().putString(KEY_PENDING_UPDATE, value).apply()
 
+    /**
+     * Set by an `unenroll` command: this device has been handed back. It is kept across a
+     * restart on purpose — a device that stopped being managed must not start reporting again
+     * because something restarted the service or the phone rebooted.
+     */
+    var unenrolled: Boolean
+        get() = prefs.getBoolean(KEY_UNENROLLED, false)
+        set(value) = prefs.edit().putBoolean(KEY_UNENROLLED, value).apply()
+
+    /**
+     * Drop everything that would let this agent talk to a server again: the address, the key
+     * and any token. Called on unenroll, so what is left on the device is inert.
+     */
+    fun forgetServer() {
+        prefs.edit()
+            .remove(KEY_SERVER_URL).remove(KEY_API_KEY).remove(KEY_ENROLL_TOKEN)
+            .putBoolean(KEY_UNENROLLED, true)
+            .apply()
+    }
+
     fun kioskExtraPackages(): List<String> = jsonStringList(kioskPackagesJson)
 
     fun kioskUrlAllow(): List<String> = jsonStringList(kioskUrlAllowJson)
@@ -203,6 +223,7 @@ class AgentConfig private constructor(private val ctx: Context) {
         private const val KEY_NETWORK_CONFIG = "network_config"
         private const val KEY_PENDING_UPDATE = "pending_update"
         private const val KEY_APP_RESTRICTIONS = "app_restrictions"
+        private const val KEY_UNENROLLED = "unenrolled"
         private const val DEFAULT_CHECKIN_INTERVAL = 30
 
         @Volatile private var instance: AgentConfig? = null

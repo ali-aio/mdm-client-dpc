@@ -101,6 +101,13 @@ class MdmService : LifecycleService(), WsClient.Listener, Acker {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         super.onStartCommand(intent, flags, startId)
+        // Handed back by an unenroll command. Whatever restarted us — boot, the alarm, the
+        // launcher — this device is not managed any more and must not start reporting again.
+        if (config.unenrolled) {
+            Log.i(TAG, "unenrolled: not connecting")
+            stopSelf()
+            return START_NOT_STICKY
+        }
         if (intent?.action == ACTION_CHECKIN_NOW && wantConnected) {
             lifecycleScope.launch(Dispatchers.IO) { doCheckin() }
         }
