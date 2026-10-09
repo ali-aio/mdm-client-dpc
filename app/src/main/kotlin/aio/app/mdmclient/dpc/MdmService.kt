@@ -58,6 +58,8 @@ class MdmService : LifecycleService(), WsClient.Listener, Acker {
     private var reconnectJob: Job? = null
     private val delta = TelemetryDelta()
     @Volatile private var lastHttpCheckinAt = 0L
+    /** Set by a server "wake" frame so the next poll tick runs even with a healthy socket. */
+    private val pollCommandsNow = java.util.concurrent.atomic.AtomicBoolean(false)
     // Touched on every sign the service's checkin loop and WS reader are actually making
     // progress (loop tick, inbound WS message). A shell command starting a persistent `sh`
     // process via ProcessBuilder forks this process — on at least two of the device families
@@ -191,6 +193,7 @@ class MdmService : LifecycleService(), WsClient.Listener, Acker {
         connectWs()
         startCheckinLoop()
         startWatchdog()
+        startCommandPollLoop()
     }
 
     /** Self-heal a wedged process — see [lastProgressAtMs]. */
@@ -212,6 +215,55 @@ class MdmService : LifecycleService(), WsClient.Listener, Acker {
         if (!wantConnected) return
         Log.i(TAG, "Connecting WS...")
         ws.connect(serial)
+    }
+
+    /**
+     * Ask the server for queued commands on its own cadence, independent of telemetry.
+     *
+     * Deliberately not the check-in schedule: command latency and telemetry volume are
+     * different problems, and making check-ins minutely to carry commands would multiply
+     * this fleet's telemetry writes to fix a delivery bug. While the socket is healthy this
+     * does nothing — the server sends a content-free "wake" frame when there is work, which
+     * is instant. The loop covers the case where that frame can never arrive: a dead
+     * socket, a refused upgrade, a proxy that drops WebSockets. The watchdog can restart a
+     * wedged process, but it cannot unblock a path that is blocked, which is why polling is
+     * the thing that makes this agent reachable rather than merely restartable.
+     */
+    private fun startCommandPollLoop() {
+        lifecycleScope.launch(Dispatchers.IO) {
+            delay(15_000L) // let enrolment and the first check-in settle
+            while (isActive && wantConnected) {
+                try {
+                    val nudged = pollCommandsNow.getAndSet(false)
+                    if (!ws.isOpen || nudged) {
+                        api.fetchPendingCommands(serial)?.let { runHttpCommands(it) }
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "command poll tick: ${e.message}")
+                }
+                delay(COMMAND_POLL_MS)
+            }
+        }
+    }
+
+    /**
+     * Commands handed back by a poll or a check-in response. Everything downstream is the
+     * code a pushed frame uses: the executor acks receipt, dedups by id and runs it, and
+     * Acker already prefers HTTP when the socket is down — so a command delivered this way
+     * behaves exactly like a pushed one, only later.
+     */
+    private fun runHttpCommands(resp: JSONObject) {
+        val cmds = resp.optJSONArray("commands") ?: return
+        if (cmds.length() == 0) return
+        Log.i(TAG, "Took ${cmds.length()} command(s) over HTTP")
+        for (i in 0 until cmds.length()) {
+            val cmd = cmds.optJSONObject(i) ?: continue
+            try {
+                executor.handleCommand(cmd)
+            } catch (e: Exception) {
+                Log.e(TAG, "HTTP command ${cmd.optString("id")} failed: ${e.message}")
+            }
+        }
     }
 
     private fun startCheckinLoop() {
@@ -242,6 +294,9 @@ class MdmService : LifecycleService(), WsClient.Listener, Acker {
             lastKnownAppsHash = null
         }
         resp.optJSONObject("config")?.let { executor.applyConfig(it) }
+        // Free backup channel: if the response already carries queued work, run it rather
+        // than waiting for the next poll.
+        runHttpCommands(resp)
     }
 
     // ---- WsClient.Listener ----
@@ -264,6 +319,15 @@ class MdmService : LifecycleService(), WsClient.Listener, Acker {
                 put("type", "pong_response")
                 put("nonce", msg.opt("nonce"))
             })
+            // "There is work, come and get it" — no payload, so a frame lost on a
+            // half-open socket costs one poll interval instead of a command.
+            "wake" -> {
+                Log.i(TAG, "Wake from server (${msg.optString("reason")}) — polling for commands")
+                pollCommandsNow.set(true)
+                lifecycleScope.launch(Dispatchers.IO) {
+                    api.fetchPendingCommands(serial)?.let { runHttpCommands(it) }
+                }
+            }
             "checkin_now" -> lifecycleScope.launch(Dispatchers.IO) { doCheckin() }
             "cancel_command" -> executor.cancel(msg.optString("id"))
             // The server sends this on an operator's wake (remote control), and on its own
@@ -408,6 +472,9 @@ class MdmService : LifecycleService(), WsClient.Listener, Acker {
         private val BACKOFF_MS = longArrayOf(1000, 2000, 4000, 8000, 30000)
         /** Full HTTP keyframe cadence while the WS is live (the firmware client's safety net). */
         private const val HTTP_SAFETY_NET_MS = 5 * 60_000L
+        // Command poll cadence while there is no usable socket. Telemetry keeps its own
+        // five-minute keyframe: this dial is command latency, nothing else.
+        private const val COMMAND_POLL_MS = 60_000L
         /** Watchdog poll cadence. */
         private const val WATCHDOG_CHECK_MS = 30_000L
         /** No checkin-loop tick and no inbound WS message in this long = treat as wedged. */

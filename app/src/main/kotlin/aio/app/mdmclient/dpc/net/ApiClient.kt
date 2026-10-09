@@ -1,5 +1,6 @@
 package aio.app.mdmclient.dpc.net
 
+import android.net.Uri
 import android.util.Log
 import aio.app.mdmclient.dpc.AgentConfig
 import okhttp3.MediaType.Companion.toMediaType
@@ -64,6 +65,40 @@ class ApiClient(private val config: AgentConfig) {
     /** POST /api/v1/commands/{id}/ack */
     fun ackCommand(commandId: String, body: JSONObject): Boolean =
         postJson("/api/v1/commands/$commandId/ack", body) != null
+
+    /**
+     * GET /api/v1/commands/pending?serial=… — this agent asking for its own work.
+     *
+     * Commands used to arrive only over the WebSocket, so an agent whose socket was gone
+     * (or whose server refused the upgrade) could not be told anything, while its
+     * check-ins kept arriving and the dashboard showed it alive. Asking is the half the
+     * device can always do. Returns the parsed body, or null — a failed poll is a no-op
+     * and the next one is a minute away.
+     */
+    fun fetchPendingCommands(serial: String): JSONObject? {
+        val url = config.apiUrl("/api/v1/commands/pending?serial=" + Uri.encode(serial))
+        return try {
+            val req = Request.Builder().url(url).header("X-API-Key", config.apiKey).get().build()
+            http.newCall(req).execute().use { resp ->
+                when {
+                    resp.isSuccessful -> {
+                        val text = resp.body?.string().orEmpty()
+                        if (text.isBlank()) JSONObject() else JSONObject(text)
+                    }
+                    resp.code == 401 -> {
+                        Log.e(TAG, "401 on command poll — device key rejected")
+                        lastError = "Device key rejected"
+                        onUnauthorized?.invoke()
+                        null
+                    }
+                    else -> null
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "command poll failed: ${e.message ?: e.javaClass.simpleName}")
+            null
+        }
+    }
 
     /** POST /api/v1/logcat */
     fun postLogcat(body: JSONObject): Boolean =

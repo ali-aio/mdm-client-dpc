@@ -75,6 +75,12 @@ object Telemetry {
         val stat = StatFs(Environment.getDataDirectory().path)
         return JSONObject().apply {
             put("agent_type", Capabilities.AGENT_TYPE)
+            // This agent fetches queued commands over HTTP (GET /api/v1/commands/pending)
+            // as well as taking them pushed over the socket. The server reads this to
+            // decide what the socket carries: a puller gets a content-free "wake" frame
+            // and fetches its own work, so a dead or half-open socket costs it a poll
+            // interval instead of making it unreachable.
+            put("http_commands", true)
             put("agent_version", BuildConfig.VERSION_NAME)
             put("agent_version_code", BuildConfig.VERSION_CODE)
             // A Device Owner installs without a prompt, so an agent update never needs

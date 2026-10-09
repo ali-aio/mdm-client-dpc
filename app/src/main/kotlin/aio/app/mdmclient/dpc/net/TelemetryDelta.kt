@@ -93,7 +93,10 @@ class TelemetryDelta {
         private val IDENTITY_KEYS = listOf("serial_number", "build_id", "product")
 
         /** Always carried: the server's DPC gate and agent_kind both read agent_type per frame. */
-        private val IDENTITY_EXTRA_KEYS = setOf("agent_type")
+        // http_commands rides every frame with agent_type: the server reads it on the
+        // check-in path to choose wake-vs-push, and a delta that omitted it would make a
+        // puller look like a client that must be handed whole commands.
+        private val IDENTITY_EXTRA_KEYS = setOf("agent_type", "http_commands")
 
         /** Ride along in any frame that is sent, but never cause one by changing. */
         val VOLATILE_EXTRA_KEYS = setOf(
