@@ -97,11 +97,12 @@ class UpdateCheckTest {
     }
 
     @Test
-    fun `an unsigned APK is refused rather than treated as matching`() {
-        assertEquals(
-            "APK is signed with a different key",
-            reject(apkSigners = emptySet(), installedSigners = key),
-        )
+    fun `signers that could not be read are left to the installer`() {
+        // A C8G POS (Android 13) reads no signers from a downloaded archive signed with our
+        // own key; refusing called it "a different key" on every attempt. Android's
+        // installer checks the key itself and refuses an unsigned or foreign APK.
+        assertNull(reject(apkSigners = emptySet(), installedSigners = key))
+        assertNull(reject(apkSigners = key, installedSigners = emptySet()))
     }
 
     @Test

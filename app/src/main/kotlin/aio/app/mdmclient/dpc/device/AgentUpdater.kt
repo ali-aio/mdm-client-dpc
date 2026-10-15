@@ -133,14 +133,26 @@ object AgentUpdater {
         )
     }
 
+    // GET_SIGNATURES as well: a device whose PackageManager leaves signingInfo empty for an
+    // archive may still fill the old field.
+    @Suppress("DEPRECATION")
     private fun archiveInfo(ctx: Context, apk: File): PackageInfo? =
-        ctx.packageManager.getPackageArchiveInfo(apk.path, PackageManager.GET_SIGNING_CERTIFICATES)
+        ctx.packageManager.getPackageArchiveInfo(
+            apk.path, PackageManager.GET_SIGNING_CERTIFICATES or PackageManager.GET_SIGNATURES,
+        )
 
-    /** Every certificate the package is signed with, including its rotation lineage. */
+    /**
+     * Every certificate the package is signed with, including its rotation lineage; the
+     * pre-28 field when signingInfo is empty. Empty when neither could be read, which
+     * [UpdateCheck] leaves to the installer.
+     */
+    @Suppress("DEPRECATION")
     private fun signers(p: PackageInfo): Set<String> {
-        val si = p.signingInfo ?: return emptySet()
-        val all: List<Signature> =
-            si.apkContentsSigners?.toList().orEmpty() + si.signingCertificateHistory?.toList().orEmpty()
+        val si = p.signingInfo
+        var all: List<Signature> =
+            si?.apkContentsSigners?.toList().orEmpty() + si?.signingCertificateHistory?.toList().orEmpty()
+        if (all.isEmpty()) all = p.signatures?.toList().orEmpty()
+        if (all.isEmpty()) Log.w(TAG, "no signers readable for ${p.packageName}")
         return all.map { s ->
             MessageDigest.getInstance("SHA-256").digest(s.toByteArray()).joinToString("") { "%02x".format(it) }
         }.toSet()

@@ -35,8 +35,14 @@ internal object UpdateCheck {
             return "APK ${apkVersionName.orEmpty()} ($apkVersionCode) is not newer than " +
                 "the installed ${installedVersionName.orEmpty()} ($installedVersionCode)"
         }
-        // Android refuses a mismatched signature anyway; this fails early and says why.
-        if (apkSigners.intersect(installedSigners).isEmpty()) {
+        // Android refuses a mismatched signature anyway; this fails early and says why. A set
+        // that could not be read proves nothing: some vendor builds (the Qualcomm C8G POS,
+        // Android 13) return no signers for a downloaded archive although it is signed with
+        // our key. Then the installer decides; it checks the key itself, and the SHA-256
+        // above has already tied the file to the build the server hosts.
+        if (apkSigners.isNotEmpty() && installedSigners.isNotEmpty() &&
+            apkSigners.intersect(installedSigners).isEmpty()
+        ) {
             return "APK is signed with a different key"
         }
         return null
