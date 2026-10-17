@@ -104,4 +104,20 @@ class TelemetryDeltaTest {
         d.remember(next)
         assertNull(d.frameFor(next))
     }
+
+    // A lost device's Wi-Fi scan differs on every check-in; if it were gated, every tick
+    // would be a frame. It must ride along, never cause one.
+    @Test fun wifiScanChangeAloneSendsNothing() {
+        val scan1 = org.json.JSONArray().put(JSONObject().put("bssid", "aa").put("rssi", -60))
+        val scan2 = org.json.JSONArray().put(JSONObject().put("bssid", "aa").put("rssi", -61))
+        val d = primed(payload { put("wifi_scan", scan1) })
+        assertNull(d.frameFor(payload { put("wifi_scan", scan2) }))
+    }
+
+    // Lost mode switching is what the dashboard waits on, so it must push a frame at once.
+    @Test fun lostModeChangeSendsAFrame() {
+        val d = primed(payload { put("lost_mode", JSONObject().put("on", false)) })
+        val frame = d.frameFor(payload { put("lost_mode", JSONObject().put("on", true).put("since_ms", 1L)) })!!
+        assertEquals(true, frame.getJSONObject("extra").getJSONObject("lost_mode").get("on"))
+    }
 }

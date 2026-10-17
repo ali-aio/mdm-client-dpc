@@ -10,6 +10,8 @@ import aio.app.mdmclient.dpc.capture.ScreenCaptureConsentActivity
 import aio.app.mdmclient.dpc.device.AgentUpdater
 import aio.app.mdmclient.dpc.device.ApkInstaller
 import aio.app.mdmclient.dpc.device.KioskManager
+import aio.app.mdmclient.dpc.device.LostMode
+import aio.app.mdmclient.dpc.device.WifiConfigurator
 import aio.app.mdmclient.dpc.device.ShellSession
 import aio.app.mdmclient.dpc.device.AppRestrictionsManager
 import aio.app.mdmclient.dpc.device.NetworkProvisioner
@@ -24,7 +26,8 @@ import java.util.Collections
 /**
  * Routes a server `command` frame to the right Device Owner action.
  *
- * Implemented (Phase 2): install_apk, app_update, uninstall, reboot, wipe, config (kiosk).
+ * Implemented (Phase 2): install_apk, app_update, uninstall, reboot, wipe, config (kiosk);
+ * since 0.3.0 lost_mode and wifi_config.
  * Screen/input and diagnostics land in later phases. Unsupported types (update_splash, anything
  * unknown) fail with a clear reason so the dashboard shows why instead of hanging. Firmware OTA
  * (the system partition) is still not here — app_update is this agent updating itself.
@@ -38,6 +41,8 @@ class CommandExecutor(
     private val config = AgentConfig.get(ctx)
     private val installer = ApkInstaller(ctx, config)
     private val kiosk = KioskManager(ctx, deviceOwner)
+    private val lostMode = LostMode(ctx, deviceOwner, kiosk)
+    private val wifi = WifiConfigurator(ctx, deviceOwner)
     private val shell = ShellSession(acker)
     private val cancelled = Collections.synchronizedSet(mutableSetOf<String>())
 
@@ -62,6 +67,8 @@ class CommandExecutor(
             "config" -> applyConfigCommand(id, payload)
             "screenshot" -> screenshot(id)
             "shell" -> shellCmd(id, frame, payload)
+            "lost_mode" -> lostModeCmd(id, payload)
+            "wifi_config" -> wifiConfig(id, payload)
 
             "update_splash" -> unsupported(id, "boot splash requires system partition access")
             else -> unsupported(id, "unknown command type: $type")
@@ -71,7 +78,9 @@ class CommandExecutor(
     /** Apply a server `config` frame/payload (kiosk etc.). Shared by WS config messages. */
     fun applyConfig(cfg: JSONObject) {
         config.applyServerConfig(cfg)
-        kiosk.apply(config)
+        // While lost, the lock is stored but not applied: applying it would put the locked
+        // app back over the lost screen. Lifting lost mode applies it then.
+        if (config.lostOn) lostMode.reassert() else kiosk.apply(config)
         UpdatePolicyManager.apply(deviceOwner, config.updatePolicyJson)
         if (config.locationEnabled) deviceOwner.ensureLocationAccess()
         NetworkProvisioner.apply(ctx, deviceOwner, config.networkConfigJson)
@@ -233,6 +242,8 @@ class CommandExecutor(
     private fun unenroll(id: String) {
         acker.ackCommand(id, "completed", output = "unenrolling")
         val wasOwner = deviceOwner.isDeviceOwner
+        // A lost device being handed back stops being lost: no one could lift it afterwards.
+        if (config.lostOn) runCatching { lostMode.exit() }
         if (wasOwner) {
             try {
                 // Leave kiosk first: lock task outlives Device Owner on some builds, and a
@@ -271,6 +282,57 @@ class CommandExecutor(
         val cmd = payload.optString("cmd").ifBlank { payload.optString("command") }
             .ifBlank { frame.optString("cmd") }
         scope.launch(Dispatchers.IO) { shell.run(id, cmd) }
+    }
+
+    /**
+     * `lost_mode` {"on": true, "message", "phone"} / {"on": false}. Acked once the lost screen
+     * is up (or after a few seconds, saying whether it is), so the dashboard's "done" means
+     * the device is actually showing it.
+     */
+    private fun lostModeCmd(id: String, payload: JSONObject) {
+        if (!payload.has("on")) {
+            acker.ackCommand(id, "failed", output = JSONObject().put("error", "missing on").toString())
+            return
+        }
+        val on = payload.optBoolean("on", false)
+        scope.launch(Dispatchers.Main) {
+            if (!on) {
+                lostMode.exit()
+                acker.ackCommand(id, "completed", output = JSONObject().put("lost_mode", false).toString())
+                return@launch
+            }
+            val message = payload.optString("message").trim().take(280)
+            val phone = payload.optString("phone").trim().take(40)
+            if (!lostMode.enter(message, phone)) {
+                acker.ackCommand(id, "failed", output = JSONObject().put("error", "not device owner").toString())
+                return@launch
+            }
+            val shown = kotlinx.coroutines.withContext(Dispatchers.IO) { lostMode.awaitShown(5_000) }
+            acker.ackCommand(id, "completed",
+                output = JSONObject().put("lost_mode", true).put("shown", shown).toString())
+        }
+    }
+
+    /** `wifi_config` {"action": "add"|"remove", "ssid", "security", "password", "hidden"}. */
+    private fun wifiConfig(id: String, payload: JSONObject) {
+        val action = payload.optString("action")
+        val ssid = payload.optString("ssid")
+        scope.launch(Dispatchers.IO) {
+            val r = when (action) {
+                "add" -> wifi.addOrUpdate(
+                    ssid, payload.optString("security", "wpa2"), payload.optString("password"),
+                    payload.optBoolean("hidden", false),
+                )
+                "remove" -> wifi.remove(ssid)
+                else -> WifiConfigurator.Result(false, "unknown action: $action")
+            }
+            if (r.ok) {
+                acker.ackCommand(id, "completed", output = JSONObject()
+                    .put("ok", true).put("ssid", ssid).put("action", action).toString())
+            } else {
+                acker.ackCommand(id, "failed", output = JSONObject().put("error", r.error).toString())
+            }
+        }
     }
 
     private fun applyConfigCommand(id: String, payload: JSONObject) {

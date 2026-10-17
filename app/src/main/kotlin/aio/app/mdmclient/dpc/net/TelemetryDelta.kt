@@ -102,6 +102,8 @@ class TelemetryDelta {
         val VOLATILE_EXTRA_KEYS = setOf(
             "uptime_seconds", "ram_usage_mb", "wifi_rssi",
             "battery_temp_c", "cpu_temp_c", "location_age_s",
+            // A lost device's scan differs every time; it rides along, it never causes a frame.
+            "wifi_scan",
         )
     }
 }

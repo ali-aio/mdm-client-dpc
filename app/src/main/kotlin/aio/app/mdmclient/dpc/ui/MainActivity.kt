@@ -127,6 +127,16 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
+        // The status screen is ours, so lock task would let it open while lost; send it
+        // straight back to the lost screen instead.
+        if (AgentConfig.get(this).lostOn) {
+            runCatching {
+                startActivity(Intent(this, aio.app.mdmclient.dpc.lost.LostActivity::class.java)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            }
+            finish()
+            return
+        }
         rendered.clear() // grants and policy may have changed while away
         ui.post(tick)
     }

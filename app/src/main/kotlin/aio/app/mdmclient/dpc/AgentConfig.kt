@@ -138,6 +138,25 @@ class AgentConfig private constructor(private val ctx: Context) {
         get() = prefs.getBoolean(KEY_UNENROLLED, false)
         set(value) = prefs.edit().putBoolean(KEY_UNENROLLED, value).apply()
 
+    // ---- Lost mode (the `lost_mode` command; see device/LostMode) ----
+    // Kept apart from the kiosk keys on purpose: lost mode sits on top of the lock and must
+    // not overwrite it, so lifting it can put the device back exactly as it was.
+
+    val lostOn: Boolean get() = prefs.getBoolean(KEY_LOST_ON, false)
+    val lostSinceMs: Long get() = prefs.getLong(KEY_LOST_SINCE, 0L)
+    val lostMessage: String get() = prefs.getString(KEY_LOST_MESSAGE, "")!!
+    val lostPhone: String get() = prefs.getString(KEY_LOST_PHONE, "")!!
+
+    /** Written synchronously: a reboot right after the command must still find the device lost. */
+    fun setLost(on: Boolean, message: String = "", phone: String = "") {
+        prefs.edit()
+            .putBoolean(KEY_LOST_ON, on)
+            .putLong(KEY_LOST_SINCE, if (on) (lostSinceMs.takeIf { lostOn } ?: System.currentTimeMillis()) else 0L)
+            .putString(KEY_LOST_MESSAGE, if (on) message else "")
+            .putString(KEY_LOST_PHONE, if (on) phone else "")
+            .commit()
+    }
+
     /**
      * Drop everything that would let this agent talk to a server again: the address, the key
      * and any token. Called on unenroll, so what is left on the device is inert.
@@ -224,6 +243,10 @@ class AgentConfig private constructor(private val ctx: Context) {
         private const val KEY_PENDING_UPDATE = "pending_update"
         private const val KEY_APP_RESTRICTIONS = "app_restrictions"
         private const val KEY_UNENROLLED = "unenrolled"
+        private const val KEY_LOST_ON = "lost_on"
+        private const val KEY_LOST_SINCE = "lost_since_ms"
+        private const val KEY_LOST_MESSAGE = "lost_message"
+        private const val KEY_LOST_PHONE = "lost_phone"
         private const val DEFAULT_CHECKIN_INTERVAL = 30
 
         @Volatile private var instance: AgentConfig? = null

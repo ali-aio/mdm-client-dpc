@@ -21,4 +21,8 @@
     <string name="setup_do_body">Device owner is what lets AIO MDM lock the device to kiosk, install apps silently and apply policy. It can only be set on a freshly reset device with no accounts on it: scan the AIO enrollment QR code during setup (tap the welcome screen six times to open the scanner), or over adb:</string>
     <string name="setup_enroll_title">Enroll this device</string>
     <string name="setup_enroll_body">Enrollment connects the device to an AIO MDM server. It normally arrives with the provisioning QR code. To enroll over adb, pass the server and an enrollment token from the dashboard\'s enrollment profiles:</string>
+    <!-- Lost mode screen (LostActivity) -->
+    <string name="lost_title">This device is lost</string>
+    <string name="lost_default_message">It belongs to a restaurant. Please hand it to a member of staff.</string>
+    <string name="lost_call">Call %1$s</string>
 </resources>

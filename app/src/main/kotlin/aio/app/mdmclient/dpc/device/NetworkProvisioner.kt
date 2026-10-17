@@ -1,8 +1,6 @@
 package aio.app.mdmclient.dpc.device
 
 import android.content.Context
-import android.net.wifi.WifiConfiguration
-import android.net.wifi.WifiManager
 import android.util.Base64
 import android.util.Log
 import aio.app.mdmclient.dpc.DeviceOwner
@@ -16,7 +14,7 @@ import org.json.JSONObject
  *    "vpn":           {"package": "com.corp.vpn", "lockdown": true}}      // "" pkg = clear
  *
  * Everything is idempotent: certs are content-addressed by the platform (re-install is a
- * no-op), Wi-Fi replaces any existing config for the same SSID, VPN sets/clears the
+ * no-op), Wi-Fi updates any existing config for the same SSID in place, VPN sets/clears the
  * always-on package. Failures log per-item and never take the agent down.
  */
 object NetworkProvisioner {
@@ -35,7 +33,7 @@ object NetworkProvisioner {
         cfg.optJSONArray("wifi_networks")?.let { nets ->
             for (i in 0 until nets.length()) {
                 val n = nets.optJSONObject(i) ?: continue
-                addWifi(ctx, n)
+                addWifi(ctx, deviceOwner, n)
             }
         }
         cfg.optJSONObject("vpn")?.let { vpn -> applyVpn(deviceOwner, vpn) }
@@ -50,31 +48,15 @@ object NetworkProvisioner {
         }.onFailure { Log.w(TAG, "CA cert '$name' failed: ${it.message}") }
     }
 
-    @Suppress("DEPRECATION")
-    private fun addWifi(ctx: Context, n: JSONObject) {
+    // Same path as the wifi_config command: updates a saved SSID in place, so a PSK rotation
+    // no longer removes (and drops) the network the device is on.
+    private fun addWifi(ctx: Context, deviceOwner: DeviceOwner, n: JSONObject) {
         val ssid = n.optString("ssid")
         if (ssid.isBlank()) return
-        runCatching {
-            val wm = ctx.applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
-            // WifiConfiguration is deprecated but remains the only API that lets a Device
-            // Owner add a network the device auto-joins (suggestions need user approval).
-            val wc = WifiConfiguration().apply {
-                SSID = "\"" + ssid + "\""
-                when (n.optString("security", "wpa2")) {
-                    "open" -> allowedKeyManagement.set(WifiConfiguration.KeyMgmt.NONE)
-                    else -> preSharedKey = "\"" + n.optString("psk") + "\""
-                }
-            }
-            // Replace an existing config for this SSID so PSK rotations apply.
-            wm.configuredNetworks?.firstOrNull { it.SSID == wc.SSID }?.let { wm.removeNetwork(it.networkId) }
-            val id = wm.addNetwork(wc)
-            if (id >= 0) {
-                wm.enableNetwork(id, false)
-                Log.i(TAG, "wifi '$ssid' provisioned")
-            } else {
-                Log.w(TAG, "wifi '$ssid' rejected by WifiManager")
-            }
-        }.onFailure { Log.w(TAG, "wifi '$ssid' failed: ${it.message}") }
+        val r = WifiConfigurator(ctx, deviceOwner).addOrUpdate(
+            ssid, n.optString("security", "wpa2"), n.optString("psk"), n.optBoolean("hidden", false),
+        )
+        if (r.ok) Log.i(TAG, "wifi '$ssid' provisioned") else Log.w(TAG, "wifi '$ssid' failed: ${r.error}")
     }
 
     private fun applyVpn(deviceOwner: DeviceOwner, vpn: JSONObject) {

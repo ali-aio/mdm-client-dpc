@@ -126,6 +126,25 @@
             </intent-filter>
         </activity>
 
+        <!-- Lost mode: becomes Home + pins itself (startLockTask) while the device is lost.
+             Disabled by default so it is never a Home candidate until LostMode enables it.
+             Its own task, so showing it never has to clear the pinned kiosk task under it. -->
+        <activity
+            android:name=".lost.LostActivity"
+            android:enabled="false"
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:taskAffinity="aio.app.mdmclient.dpc.lost"
+            android:excludeFromRecents="true"
+            android:stateNotNeeded="true"
+            android:theme="@android:style/Theme.Black.NoTitleBar.Fullscreen">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.HOME" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
+
         <!-- Kiosk browser: WebView with a URL allowlist, hosted inside the pinned lock task -->
         <activity
             android:name=".kiosk.KioskBrowserActivity"

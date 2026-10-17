@@ -14,10 +14,15 @@ import android.os.Build
 import android.os.Environment
 import android.os.StatFs
 import android.os.SystemClock
+import aio.app.mdmclient.dpc.AgentConfig
 import aio.app.mdmclient.dpc.BuildConfig
 import aio.app.mdmclient.dpc.Capabilities
 import aio.app.mdmclient.dpc.DeviceIdentity
+import aio.app.mdmclient.dpc.DeviceOwner
 import aio.app.mdmclient.dpc.device.CrashEvents
+import aio.app.mdmclient.dpc.device.LostMode
+import aio.app.mdmclient.dpc.device.SecurityPosture
+import aio.app.mdmclient.dpc.device.WifiConfigurator
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.TimeZone
@@ -120,8 +125,41 @@ object Telemetry {
             CrashEvents.recent(ctx)?.let { put("crash_events", it) }
             attachLocation(ctx, this)
             attachSecurityPosture(ctx, this)
+            val owner = DeviceOwner(ctx)
+            runCatching { SecurityPosture.put(ctx, owner, this) }
+            runCatching { WifiConfigurator(ctx, owner).report()?.let { put("wifi_networks", it) } }
+            put("lost_mode", LostMode.report(ctx))
+            // A lost device reports what it can hear, every check-in, so the server can
+            // place it (the firmware client sends this always; this agent only when lost).
+            if (AgentConfig.get(ctx).lostOn) wifiScan(ctx)?.let { put("wifi_scan", it) }
         }
     }
+
+    @Volatile private var lastScanStartMs = 0L
+
+    /**
+     * The last scan's access points as {bssid, ssid, rssi} — the firmware client's shape —
+     * and a fresh scan asked for at most once a minute (Android throttles more anyway). Needs
+     * the location permission and location on, which LostMode.enter sees to.
+     */
+    @Suppress("DEPRECATION")
+    private fun wifiScan(ctx: Context): JSONArray? = runCatching {
+        val wm = ctx.applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
+        val now = SystemClock.elapsedRealtime()
+        if (now - lastScanStartMs > 60_000L) {
+            lastScanStartMs = now
+            runCatching { wm.startScan() }
+        }
+        val out = JSONArray()
+        for (sr in wm.scanResults.orEmpty()) {
+            out.put(JSONObject().apply {
+                put("bssid", sr.BSSID)
+                put("ssid", sr.SSID)
+                put("rssi", sr.level)
+            })
+        }
+        out
+    }.getOrNull()
 
     /**
      * ip_address / wifi / wifi_rssi, the keys the firmware client reports. The SSID reads as
@@ -184,14 +222,16 @@ object Telemetry {
     }
 
     /**
-     * Attach the freshest last-known fix when the server has enabled location reporting and
+     * Attach the freshest last-known fix when the server has enabled location reporting (or
+     * the device is lost) and
      * the DO-granted permission is actually in place. Reads are passive, but when no fix
      * exists (or it's stale) we request ONE fresh fix asynchronously — on a dedicated
      * device nothing else ever activates the providers, so a passive-only read would
      * never produce a location at all. The fresh fix lands in a later checkin.
      */
     private fun attachLocation(ctx: Context, extra: JSONObject) {
-        if (!aio.app.mdmclient.dpc.AgentConfig.get(ctx).locationEnabled) return
+        val cfg = AgentConfig.get(ctx)
+        if (!cfg.locationEnabled && !cfg.lostOn) return
         if (ctx.checkSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION) !=
             android.content.pm.PackageManager.PERMISSION_GRANTED
         ) return

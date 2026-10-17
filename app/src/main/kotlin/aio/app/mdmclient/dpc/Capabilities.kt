@@ -26,6 +26,10 @@ object Capabilities {
         "wipe",
         // Hand the device back: drop Device Owner and stop reporting, keeping the data.
         "unenroll",
+        // The lost screen, pinned until the server lifts it (LostMode).
+        "lost_mode",
+        // Saved Wi-Fi networks: add/update in place, remove (WifiConfigurator).
+        "wifi_config",
         "config",
         "telemetry",
         // Implemented by ShellSession, but always the unprivileged app UID — so it is
