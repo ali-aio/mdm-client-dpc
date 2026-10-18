@@ -20,6 +20,8 @@ import aio.app.mdmclient.dpc.Capabilities
 import aio.app.mdmclient.dpc.DeviceIdentity
 import aio.app.mdmclient.dpc.DeviceOwner
 import aio.app.mdmclient.dpc.device.CrashEvents
+import aio.app.mdmclient.dpc.device.BleBeacon
+import aio.app.mdmclient.dpc.device.BleListener
 import aio.app.mdmclient.dpc.device.LostMode
 import aio.app.mdmclient.dpc.device.SecurityPosture
 import aio.app.mdmclient.dpc.device.WifiConfigurator
@@ -129,6 +131,11 @@ object Telemetry {
             runCatching { SecurityPosture.put(ctx, owner, this) }
             runCatching { WifiConfigurator(ctx, owner).report()?.let { put("wifi_networks", it) } }
             put("lost_mode", LostMode.report(ctx))
+            // Lost-device Bluetooth (protocol B): the beacon's state while lost, and what this
+            // device heard of other lost devices at its venue (only while asked to listen).
+            if (AgentConfig.get(ctx).lostOn) BleBeacon.report()?.let { put("lost_beacon", it) }
+            BleListener.sightingsReport()?.let { put("ble_sightings", it) }
+            BleListener.scanReport()?.let { put("ble_scan", it) }
             // A lost device reports what it can hear, every check-in, so the server can
             // place it (the firmware client sends this always; this agent only when lost).
             if (AgentConfig.get(ctx).lostOn) wifiScan(ctx)?.let { put("wifi_scan", it) }

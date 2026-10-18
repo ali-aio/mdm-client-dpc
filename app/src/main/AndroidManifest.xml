@@ -18,6 +18,15 @@
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
+    <!-- Lost-device Bluetooth (BleBeacon / BleListener): the legacy pair up to Android 11, the
+         runtime trio from 12 on. BLUETOOTH_SCAN deliberately has no neverForLocation: that flag
+         makes Android drop beacon advertisements from scan results. -->
+    <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
+    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" android:maxSdkVersion="30" />
+    <uses-permission android:name="android.permission.BLUETOOTH_SCAN" />
+    <uses-permission android:name="android.permission.BLUETOOTH_ADVERTISE" />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+    <uses-feature android:name="android.hardware.bluetooth_le" android:required="false" />
 
     <!-- Lifecycle -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />

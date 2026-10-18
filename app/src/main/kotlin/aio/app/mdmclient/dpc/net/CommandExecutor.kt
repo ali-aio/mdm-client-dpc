@@ -303,7 +303,9 @@ class CommandExecutor(
             }
             val message = payload.optString("message").trim().take(280)
             val phone = payload.optString("phone").trim().take(40)
-            if (!lostMode.enter(message, phone)) {
+            // The session's Bluetooth LE token, when the server made one (protocol B).
+            val beacon = payload.optString("beacon").trim()
+            if (!lostMode.enter(message, phone, beacon)) {
                 acker.ackCommand(id, "failed", output = JSONObject().put("error", "not device owner").toString())
                 return@launch
             }

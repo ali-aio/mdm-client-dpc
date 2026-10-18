@@ -146,14 +146,21 @@ class AgentConfig private constructor(private val ctx: Context) {
     val lostSinceMs: Long get() = prefs.getLong(KEY_LOST_SINCE, 0L)
     val lostMessage: String get() = prefs.getString(KEY_LOST_MESSAGE, "")!!
     val lostPhone: String get() = prefs.getString(KEY_LOST_PHONE, "")!!
+    /** The server's `lost_listen` object as JSON, "" when there is nothing to listen for. */
+    var lostListenJson: String
+        get() = prefs.getString(KEY_LOST_LISTEN, "")!!
+        set(value) = prefs.edit().putString(KEY_LOST_LISTEN, value).apply()
+    /** This lost session's BLE token (16 hex chars), "" when the server sent none. */
+    val lostBeacon: String get() = prefs.getString(KEY_LOST_BEACON, "")!!
 
     /** Written synchronously: a reboot right after the command must still find the device lost. */
-    fun setLost(on: Boolean, message: String = "", phone: String = "") {
+    fun setLost(on: Boolean, message: String = "", phone: String = "", beacon: String = "") {
         prefs.edit()
             .putBoolean(KEY_LOST_ON, on)
             .putLong(KEY_LOST_SINCE, if (on) (lostSinceMs.takeIf { lostOn } ?: System.currentTimeMillis()) else 0L)
             .putString(KEY_LOST_MESSAGE, if (on) message else "")
             .putString(KEY_LOST_PHONE, if (on) phone else "")
+            .putString(KEY_LOST_BEACON, if (on) beacon else "")
             .commit()
     }
 
@@ -207,6 +214,13 @@ class AgentConfig private constructor(private val ctx: Context) {
         if (cfg.has("app_restrictions")) {
             appRestrictionsJson = cfg.optJSONArray("app_restrictions")?.toString().orEmpty()
         }
+        // Lost-device listening (BleListener). The key is present only while a device at this
+        // venue is lost; a whole config (one that carries the kiosk keys) without it means stop.
+        if (cfg.has("lost_listen")) {
+            lostListenJson = cfg.optJSONObject("lost_listen")?.toString().orEmpty()
+        } else if (cfg.has("kiosk_enabled")) {
+            lostListenJson = ""
+        }
         return intervalChanged
     }
 
@@ -247,6 +261,8 @@ class AgentConfig private constructor(private val ctx: Context) {
         private const val KEY_LOST_SINCE = "lost_since_ms"
         private const val KEY_LOST_MESSAGE = "lost_message"
         private const val KEY_LOST_PHONE = "lost_phone"
+        private const val KEY_LOST_BEACON = "lost_beacon"
+        private const val KEY_LOST_LISTEN = "lost_listen"
         private const val DEFAULT_CHECKIN_INTERVAL = 30
 
         @Volatile private var instance: AgentConfig? = null

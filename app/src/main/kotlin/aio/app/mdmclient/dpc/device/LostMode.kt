@@ -33,25 +33,30 @@ import org.json.JSONObject
  * The kiosk host stops being a Home candidate meanwhile, so nothing else can answer Home.
  *
  * This agent has no device-side unlock code, so only the server's `{"on": false}` lifts it.
+ *
+ * While lost it also advertises the session's Bluetooth LE token ([BleBeacon]) when the server
+ * sent one, so the other devices at the venue can report hearing it after it has left Wi-Fi.
  */
 class LostMode(private val ctx: Context, private val deviceOwner: DeviceOwner, private val kiosk: KioskManager) {
 
     private val config = AgentConfig.get(ctx)
 
     /** Persist and show. Returns false when the agent is not Device Owner (nothing pinned). */
-    fun enter(message: String, phone: String): Boolean {
+    fun enter(message: String, phone: String, beacon: String = ""): Boolean {
         if (!deviceOwner.isDeviceOwner) return false
-        config.setLost(true, message, phone)
+        config.setLost(true, message, phone, beacon)
         // A lost device should be findable: grant location to ourselves and turn location
         // on, so the check-in can carry a Wi-Fi scan (and a fix) for the server to place it.
         deviceOwner.ensureLocationAccess()
         pin()
+        startBeacon()
         return true
     }
 
     /** Lift lost mode and put the lock back as the server last set it. */
     fun exit() {
         config.setLost(false)
+        bg.execute { BleBeacon.stop(ctx, deviceOwner) }
         if (!deviceOwner.isDeviceOwner) return
         val dpm = deviceOwner.dpm
         val admin = deviceOwner.admin
@@ -76,7 +81,16 @@ class LostMode(private val ctx: Context, private val deviceOwner: DeviceOwner, p
 
     /** Re-assert after boot, process death or a config push. No-op when not lost. */
     fun reassert() {
-        if (config.lostOn && deviceOwner.isDeviceOwner) pin()
+        if (config.lostOn && deviceOwner.isDeviceOwner) {
+            pin()
+            startBeacon()
+        }
+    }
+
+    /** Bluetooth work blocks (switching the radio on), so it never runs on the main thread. */
+    private fun startBeacon() {
+        val token = config.lostBeacon
+        bg.execute { BleBeacon.start(ctx, deviceOwner, token) }
     }
 
     /** Wait (up to [timeoutMs]) for the lost screen to be on top; true when it is. */
@@ -124,6 +138,7 @@ class LostMode(private val ctx: Context, private val deviceOwner: DeviceOwner, p
     companion object {
         private const val TAG = "LostMode"
         private val main = Handler(Looper.getMainLooper())
+        private val bg = java.util.concurrent.Executors.newSingleThreadExecutor()
 
         /** `extra.lost_mode`: {"on": true, "since_ms", "message"} or {"on": false}. */
         fun report(ctx: Context): JSONObject {

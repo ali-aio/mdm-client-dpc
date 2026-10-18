@@ -52,7 +52,17 @@ object Capabilities {
         "shell" to false, // never "full": an app UID shell, not root or system
     )
 
-    fun supported(ctx: Context): List<String> = base + upgraded(ctx).filterValues { it }.keys
+    /**
+     * Lost-device Bluetooth (protocol B), only on hardware that has it: listening for other
+     * lost devices' beacons, and advertising this device's own while it is lost.
+     */
+    private fun bluetooth(ctx: Context): List<String> {
+        val radio = aio.app.mdmclient.dpc.device.BleRadio(ctx, DeviceOwner(ctx))
+        if (!radio.hasLe) return emptyList()
+        return if (radio.canAdvertise) listOf("ble_listen", "ble_beacon") else listOf("ble_listen")
+    }
+
+    fun supported(ctx: Context): List<String> = base + bluetooth(ctx) + upgraded(ctx).filterValues { it }.keys
 
     fun degraded(ctx: Context): List<String> = upgraded(ctx).filterValues { !it }.keys.toList()
 

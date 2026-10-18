@@ -13,6 +13,8 @@ import androidx.lifecycle.LifecycleService
 import androidx.lifecycle.lifecycleScope
 import aio.app.mdmclient.dpc.capture.ScreenCaptureConsentActivity
 import aio.app.mdmclient.dpc.capture.ScreenCaptureService
+import aio.app.mdmclient.dpc.device.BleListener
+import aio.app.mdmclient.dpc.device.BleProtocol
 import aio.app.mdmclient.dpc.device.ScreenControl
 import aio.app.mdmclient.dpc.device.AgentUpdater
 import aio.app.mdmclient.dpc.device.LogcatManager
@@ -195,6 +197,30 @@ class MdmService : LifecycleService(), WsClient.Listener, Acker {
         startCheckinLoop()
         startWatchdog()
         startCommandPollLoop()
+        startBleListenLoop()
+    }
+
+    /**
+     * Lost-device listening (protocol B): while the server's `lost_listen` names lost devices at
+     * this venue, scan every `every_s` for `scan_s` and report at once when one was heard.
+     * Nothing touches the radio while there is nothing to listen for.
+     */
+    private fun startBleListenLoop() {
+        lifecycleScope.launch(Dispatchers.IO) {
+            while (isActive && wantConnected) {
+                val cfg = BleProtocol.parseListen(config.lostListenJson)
+                if (cfg == null) {
+                    BleListener.idle()
+                    delay(BLE_IDLE_CHECK_MS)
+                    continue
+                }
+                val heard = runCatching { BleListener.scanOnce(this@MdmService, deviceOwner, cfg) }
+                    .getOrElse { Log.w(TAG, "ble scan: ${it.message}"); false }
+                // A hit is worth reporting now, not at the next check-in tick.
+                if (heard) { if (ws.isOpen) pushTelemetry() else doCheckin() }
+                delay((cfg.everyS - cfg.scanS).coerceAtLeast(5) * 1000L)
+            }
+        }
     }
 
     /** Self-heal a wedged process — see [lastProgressAtMs]. */
@@ -474,6 +500,8 @@ class MdmService : LifecycleService(), WsClient.Listener, Acker {
     }
 
     companion object {
+        /** How often to look at `lost_listen` while there is nothing to listen for. */
+        private const val BLE_IDLE_CHECK_MS = 30_000L
         private const val TAG = "MdmService"
         private const val NOTIF_ID = 1001
         private val BACKOFF_MS = longArrayOf(1000, 2000, 4000, 8000, 30000)
