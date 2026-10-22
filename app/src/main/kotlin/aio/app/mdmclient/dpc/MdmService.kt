@@ -13,6 +13,7 @@ import androidx.lifecycle.LifecycleService
 import androidx.lifecycle.lifecycleScope
 import aio.app.mdmclient.dpc.capture.ScreenCaptureConsentActivity
 import aio.app.mdmclient.dpc.capture.ScreenCaptureService
+import aio.app.mdmclient.dpc.device.AppUsageReport
 import aio.app.mdmclient.dpc.device.BleListener
 import aio.app.mdmclient.dpc.device.BleProtocol
 import aio.app.mdmclient.dpc.device.ScreenControl
@@ -202,6 +203,7 @@ class MdmService : LifecycleService(), WsClient.Listener, Acker {
         wantConnected = true
         connectWs()
         startCheckinLoop()
+        startAppUsageLoop()
         startWatchdog()
         startCommandPollLoop()
         startBleListenLoop()
@@ -302,6 +304,20 @@ class MdmService : LifecycleService(), WsClient.Listener, Acker {
                 executor.handleCommand(cmd)
             } catch (e: Exception) {
                 Log.e(TAG, "HTTP command ${cmd.optString("id")} failed: ${e.message}")
+            }
+        }
+    }
+
+    /** Per-app usage every AppUsageReport.INTERVAL_MS (0.6.0); the window waits for a 200. */
+    private fun startAppUsageLoop() {
+        lifecycleScope.launch(Dispatchers.IO) {
+            delay(2 * 60 * 1000L)
+            while (isActive && wantConnected) {
+                runCatching {
+                    val (body, to) = AppUsageReport.build(this@MdmService, DeviceIdentity.serial(this@MdmService))
+                    if (api.appUsage(body)) AppUsageReport.sent(this@MdmService, to)
+                }.onFailure { Log.w(TAG, "app usage: ${it.message}") }
+                delay(AppUsageReport.INTERVAL_MS)
             }
         }
     }

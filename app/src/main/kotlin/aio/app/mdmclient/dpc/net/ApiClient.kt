@@ -105,6 +105,10 @@ class ApiClient(private val config: AgentConfig) {
     fun backfill(body: JSONObject): JSONObject? =
         postJson("/api/v1/checkins/backfill", body, attempts = 1)
 
+    /** POST /api/v1/app-usage: the per-app summary (AppUsageReport). One try. */
+    fun appUsage(body: JSONObject): Boolean =
+        postJson("/api/v1/app-usage", body, attempts = 1) != null
+
     /** POST /api/v1/logcat */
     fun postLogcat(body: JSONObject): Boolean =
         postJson("/api/v1/logcat", body) != null
