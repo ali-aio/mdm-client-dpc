@@ -96,6 +96,11 @@ class ScreenCaptureService : Service() {
     }
 
     private fun startCapture(resultCode: Int, data: Intent, fps: Int, bitrate: Int, scale: Float, codecName: String, quality: Int) {
+        // One session at a time. The browser reconnects (codec fallback, a dropped socket) while
+        // the old session is still up; left running, its projection's onStop later tore down
+        // the new one through the shared fields — "Invalid media projection", a frozen frame,
+        // then a native crash (22 Oct, HK1 box).
+        stopCapture()
         val mpm = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
         val proj = mpm.getMediaProjection(resultCode, data) ?: throw IllegalStateException("no projection")
         projection = proj
@@ -103,7 +108,8 @@ class ScreenCaptureService : Service() {
         callbackThread = HandlerThread("cap-cb").apply { start() }
         proj.registerCallback(object : MediaProjection.Callback() {
             override fun onStop() {
-                stopCapture(); stopSelf()
+                // Only this session's own projection ending stops capture.
+                if (projection === proj) { stopCapture(); stopSelf() }
             }
         }, Handler(callbackThread.looper))
 
@@ -157,11 +163,12 @@ class ScreenCaptureService : Service() {
             stopSelf()
             return
         }
+        stopCapture()
         projection = proj
         callbackThread = HandlerThread("cap-cb").apply { start() }
         val handler = Handler(callbackThread.looper)
         proj.registerCallback(object : MediaProjection.Callback() {
-            override fun onStop() { stopCapture(); stopSelf() }
+            override fun onStop() { if (projection === proj) { stopCapture(); stopSelf() } }
         }, handler)
 
         val metrics = displayMetrics()
@@ -259,8 +266,8 @@ class ScreenCaptureService : Service() {
      * same VirtualDisplay — a second createVirtualDisplay on one projection is refused from
      * Android 14 — or with stills when no other encoder takes the size.
      */
-    private fun swapEncoder(dead: String, why: String?) {
-        if (!running) return
+    private fun swapEncoder(enc: MediaCodec, dead: String, why: String?) {
+        if (!running || codec !== enc) return   // a newer session, or already stopped
         val vd = virtualDisplay ?: return
         rememberBad(dead)
         Log.w(TAG, "H.264 encoder $dead died mid-stream ($why); switching")
@@ -340,8 +347,9 @@ class ScreenCaptureService : Service() {
                 enc.dequeueOutputBuffer(info, 100_000)
             } catch (e: IllegalStateException) {
                 val dead = encoderName
-                if (running && enc === codec && dead != null) {
-                    Handler(callbackThread.looper).post { swapEncoder(dead, e.message) }
+                val looper = if (this::callbackThread.isInitialized) callbackThread.looper else null
+                if (running && enc === codec && dead != null && looper != null) {
+                    Handler(looper).post { swapEncoder(enc, dead, e.message) }
                 }
                 break
             }
@@ -374,6 +382,8 @@ class ScreenCaptureService : Service() {
     }
 
     private fun stopCapture() {
+        val proj = projection
+        projection = null           // before stop(): its onStop sees it is no longer current
         running = false
         runCatching { drainThread?.join(500) }
         drainThread = null
@@ -384,8 +394,7 @@ class ScreenCaptureService : Service() {
         imageReader = null
         runCatching { virtualDisplay?.release() }
         virtualDisplay = null
-        runCatching { projection?.stop() }
-        projection = null
+        runCatching { proj?.stop() }
         if (this::callbackThread.isInitialized) runCatching { callbackThread.quitSafely() }
     }
 
