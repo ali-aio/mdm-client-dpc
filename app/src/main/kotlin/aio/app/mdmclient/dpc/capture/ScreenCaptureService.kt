@@ -50,6 +50,14 @@ class ScreenCaptureService : Service() {
     @Volatile private var running = false
     @Volatile private var lastFrameMs = 0L
     private lateinit var callbackThread: HandlerThread
+    // The live session, kept so a dead encoder can be swapped without a new projection.
+    private var encoderName: String? = null
+    private var vdW = 0
+    private var vdH = 0
+    private var sessionDpi = 0
+    private var sessionFps = 15
+    private var sessionBitrate = 2_000_000
+    private var sessionQuality = 70
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -106,6 +114,7 @@ class ScreenCaptureService : Service() {
         if (w < 2) w = 2; if (h < 2) h = 2
 
         running = true
+        sessionDpi = dpi; sessionFps = fps; sessionBitrate = bitrate; sessionQuality = quality
         if (codecName == "jpeg") {
             startJpeg(proj, w, h, dpi, fps, quality)
             Log.i(TAG, "capture started ${w}x$h @${fps}fps codec=jpeg")
@@ -214,6 +223,17 @@ class ScreenCaptureService : Service() {
     private fun startH264(proj: MediaProjection, reqW: Int, reqH: Int, dpi: Int, fps: Int, bitrate: Int) {
         val (name, w, h) = pickAvcEncoder(reqW, reqH)
         Log.i(TAG, "H.264 encoder $name at ${w}x$h (asked ${reqW}x$reqH)")
+        val (enc, inputSurface) = configureEncoder(name, w, h, fps, bitrate)
+        vdW = w; vdH = h
+        virtualDisplay = proj.createVirtualDisplay(
+            "mdm-capture", w, h, dpi,
+            DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR, inputSurface, null, null,
+        )
+        drainThread = Thread { drainLoop(enc) }.also { it.start() }
+    }
+
+    /** A started encoder and its input surface. Sets [codec] first so a failure releases it. */
+    private fun configureEncoder(name: String, w: Int, h: Int, fps: Int, bitrate: Int): Pair<MediaCodec, Surface> {
         val format = MediaFormat.createVideoFormat(MediaFormat.MIMETYPE_VIDEO_AVC, w, h).apply {
             setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface)
             setInteger(MediaFormat.KEY_BIT_RATE, bitrate)
@@ -226,19 +246,58 @@ class ScreenCaptureService : Service() {
         }
         val enc = MediaCodec.createByCodecName(name)
         codec = enc
+        encoderName = name
         enc.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
         val inputSurface: Surface = enc.createInputSurface()
         enc.start()
-        virtualDisplay = proj.createVirtualDisplay(
-            "mdm-capture", w, h, dpi,
-            DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR, inputSurface, null, null,
-        )
-        drainThread = Thread { drainLoop(enc) }.also { it.start() }
+        return enc to inputSurface
+    }
+
+    /**
+     * The encoder died mid-stream (22 Oct, HK1 box: c2.rk.avc.encoder "died" 1.4 s in, every
+     * session). Skip it on this build from now on and carry on with the next one on the
+     * same VirtualDisplay — a second createVirtualDisplay on one projection is refused from
+     * Android 14 — or with stills when no other encoder takes the size.
+     */
+    private fun swapEncoder(dead: String, why: String?) {
+        if (!running) return
+        val vd = virtualDisplay ?: return
+        rememberBad(dead)
+        Log.w(TAG, "H.264 encoder $dead died mid-stream ($why); switching")
+        runCatching { codec?.release() }
+        codec = null
+        configBytes = null
+        try {
+            val (name, w, h) = pickAvcEncoder(vdW, vdH)
+            val (enc, surface) = configureEncoder(name, w, h, sessionFps, sessionBitrate)
+            if (w != vdW || h != vdH) { vd.resize(w, h, sessionDpi); vdW = w; vdH = h }
+            vd.surface = surface
+            drainThread = Thread { drainLoop(enc) }.also { it.start() }
+            Log.i(TAG, "H.264 resumed on $name at ${w}x$h")
+        } catch (e: Exception) {
+            Log.w(TAG, "no other H.264 encoder (${e.message}); streaming JPEG stills instead")
+            runCatching { codec?.release() }
+            codec = null
+            val (jw, jh) = capLongSide(vdW, vdH, JPEG_FALLBACK_MAX)
+            val reader = jpegReader(jw, jh, sessionFps, sessionQuality)
+            vd.resize(jw, jh, sessionDpi); vdW = jw; vdH = jh
+            vd.surface = reader.surface
+        }
     }
 
     /** JPEG stills via ImageReader — robust fallback that works where H.264 encode/decode
      *  doesn't (e.g. software-GPU emulators). Throttled to the requested fps. */
     private fun startJpeg(proj: MediaProjection, w: Int, h: Int, dpi: Int, fps: Int, quality: Int) {
+        val reader = jpegReader(w, h, fps, quality)
+        vdW = w; vdH = h
+        virtualDisplay = proj.createVirtualDisplay(
+            "mdm-capture-jpeg", w, h, dpi,
+            DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR, reader.surface, null, Handler(callbackThread.looper),
+        )
+    }
+
+    /** An ImageReader that sends each frame as a JPEG, throttled to [fps]. */
+    private fun jpegReader(w: Int, h: Int, fps: Int, quality: Int): ImageReader {
         val reader = ImageReader.newInstance(w, h, PixelFormat.RGBA_8888, 2)
         imageReader = reader
         val minIntervalMs = (1000L / fps).coerceAtLeast(33L)
@@ -255,10 +314,7 @@ class ScreenCaptureService : Service() {
                 img.close()
             }
         }, handler)
-        virtualDisplay = proj.createVirtualDisplay(
-            "mdm-capture-jpeg", w, h, dpi,
-            DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR, reader.surface, null, handler,
-        )
+        return reader
     }
 
     private fun imageToJpeg(img: Image, w: Int, h: Int, quality: Int): ByteArray? = try {
@@ -283,6 +339,10 @@ class ScreenCaptureService : Service() {
             val index = try {
                 enc.dequeueOutputBuffer(info, 100_000)
             } catch (e: IllegalStateException) {
+                val dead = encoderName
+                if (running && enc === codec && dead != null) {
+                    Handler(callbackThread.looper).post { swapEncoder(dead, e.message) }
+                }
                 break
             }
             if (index >= 0) {
@@ -366,6 +426,11 @@ class ScreenCaptureService : Service() {
 
     private fun Int.roundDownEven(): Int = this and 1.inv()
 
+    private fun rememberBad(name: String) {
+        val p = getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        p.edit().putStringSet(KEY_BAD, badEncoders(this) + name).apply()
+    }
+
     /**
      * The H.264 encoder to use and the size it can take. `createEncoderByType` hands back
      * whichever encoder ranks first, and on Android 11 that is Codec2's software one, capped
@@ -378,6 +443,7 @@ class ScreenCaptureService : Service() {
         val avc = MediaFormat.MIMETYPE_VIDEO_AVC
         val encoders = MediaCodecList(MediaCodecList.REGULAR_CODECS).codecInfos
             .filter { info -> info.isEncoder && info.supportedTypes.any { it.equals(avc, true) } }
+            .filter { it.name !in badEncoders(this) }
             .sortedBy { if (isSoftware(it)) 1 else 0 }
         for (info in encoders) {
             val vc = runCatching { info.getCapabilitiesForType(avc).videoCapabilities }.getOrNull() ?: continue
@@ -422,6 +488,14 @@ class ScreenCaptureService : Service() {
         const val EXTRA_QUALITY = "quality"
         const val EXTRA_SCALE = "scale"
         private const val JPEG_FALLBACK_MAX = 1280   // long side of the stills when H.264 fails
+        private const val PREFS = "capture"
+        // Encoders that died mid-stream on this build. Kept on disk so the next session — even
+        // after the agent restarts — goes straight to one that works; a new build (an OTA may
+        // fix the encoder) starts the list over.
+        private val KEY_BAD = "bad_avc_encoders@" + Build.FINGERPRINT
+
+        private fun badEncoders(ctx: Context): Set<String> =
+            ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getStringSet(KEY_BAD, emptySet()) ?: emptySet()
         const val EXTRA_FPS = "fps"
         const val EXTRA_BITRATE = "bitrate"
         /** Command id for a one-shot still: capture one frame, ack it, stop. */
