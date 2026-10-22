@@ -22,6 +22,7 @@ import aio.app.mdmclient.dpc.net.Acker
 import aio.app.mdmclient.dpc.net.AdbTunnel
 import aio.app.mdmclient.dpc.net.ApiClient
 import aio.app.mdmclient.dpc.net.CommandExecutor
+import aio.app.mdmclient.dpc.net.OfflineQueue
 import aio.app.mdmclient.dpc.net.Telemetry
 import aio.app.mdmclient.dpc.net.TelemetryDelta
 import aio.app.mdmclient.dpc.net.WsClient
@@ -32,6 +33,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlin.random.Random
+import org.json.JSONArray
 import org.json.JSONObject
 
 /**
@@ -60,6 +62,11 @@ class MdmService : LifecycleService(), WsClient.Listener, Acker {
     private var reconnectJob: Job? = null
     private val delta = TelemetryDelta()
     @Volatile private var lastHttpCheckinAt = 0L
+    // Offline queue (0.5.0): when the last HTTP check-in failed and the socket is down, a
+    // reading goes into OfflineQueue every OFFLINE_SAMPLE_MS; it is flushed on reconnect.
+    @Volatile private var lastCheckinOk = true
+    @Volatile private var lastOfflineSampleAt = 0L
+    private val flushing = java.util.concurrent.atomic.AtomicBoolean(false)
     /** Set by a server "wake" frame so the next poll tick runs even with a healthy socket. */
     private val pollCommandsNow = java.util.concurrent.atomic.AtomicBoolean(false)
     @Volatile private var lastCommandPollAt = 0L
@@ -305,6 +312,7 @@ class MdmService : LifecycleService(), WsClient.Listener, Acker {
                 lastProgressAtMs = SystemClock.elapsedRealtime()
                 val httpDue = SystemClock.elapsedRealtime() - lastHttpCheckinAt >= HTTP_SAFETY_NET_MS
                 if (!ws.isOpen || httpDue || lastHttpCheckinAt == 0L) doCheckin() else pushTelemetry()
+                maybeQueueOffline()
                 delay(config.checkinIntervalSeconds * 1000L)
             }
         }
@@ -318,7 +326,9 @@ class MdmService : LifecycleService(), WsClient.Listener, Acker {
         lastHttpCheckinAt = SystemClock.elapsedRealtime()
         val resp = api.checkin(payload)
         AgentStatus.checkinResult(resp != null, api.lastError)
+        lastCheckinOk = resp != null
         if (resp == null) return
+        flushOfflineQueue()
         // The server replaced latest_extra with this snapshot: it is the new delta baseline.
         delta.remember(payload)
         lastKnownAppsHash = currentHash
@@ -338,6 +348,43 @@ class MdmService : LifecycleService(), WsClient.Listener, Acker {
         AgentStatus.wsConnected = true
         reconnectAttempt = 0
         sendKeyframe()
+        lifecycleScope.launch(Dispatchers.IO) { flushOfflineQueue() }
+    }
+
+    /** Keeps a reading while nothing reaches the server: socket down and the last check-in failed. */
+    private fun maybeQueueOffline() {
+        if (ws.isOpen || lastCheckinOk) return
+        val now = SystemClock.elapsedRealtime()
+        if (lastOfflineSampleAt != 0L && now - lastOfflineSampleAt < OFFLINE_SAMPLE_MS) return
+        lastOfflineSampleAt = now
+        runCatching { OfflineQueue.add(this, Telemetry.offlineReading(this)) }
+            .onFailure { Log.w(TAG, "offline reading failed: ${it.message}") }
+    }
+
+    /** Sends the kept readings, 200 at a time, removing each batch only once the server took it. */
+    private fun flushOfflineQueue() {
+        if (!flushing.compareAndSet(false, true)) return
+        try {
+            while (true) {
+                val batch = OfflineQueue.peek(this, OFFLINE_BATCH)
+                if (batch.isEmpty()) break
+                val body = JSONObject().apply {
+                    put("serial", DeviceIdentity.serial(this@MdmService))
+                    put("now_ms", System.currentTimeMillis())
+                    put("now_elapsed_ms", SystemClock.elapsedRealtime())
+                    put("boot_id", Telemetry.bootId(this@MdmService))
+                    put("dropped", OfflineQueue.dropped(this@MdmService))
+                    put("readings", JSONArray(batch))
+                }
+                if (api.backfill(body) == null) break
+                OfflineQueue.removeFirst(this, batch.size)
+                OfflineQueue.clearDropped(this)
+                Log.i(TAG, "Sent ${batch.size} offline reading(s)")
+            }
+        } finally {
+            flushing.set(false)
+            lastOfflineSampleAt = 0L
+        }
     }
 
     override fun onMessage(msg: JSONObject) {
@@ -505,6 +552,8 @@ class MdmService : LifecycleService(), WsClient.Listener, Acker {
         private const val TAG = "MdmService"
         private const val NOTIF_ID = 1001
         private val BACKOFF_MS = longArrayOf(1000, 2000, 4000, 8000, 30000)
+        private const val OFFLINE_SAMPLE_MS = 5 * 60 * 1000L
+        private const val OFFLINE_BATCH = 200
         /** Full HTTP keyframe cadence while the WS is live (the firmware client's safety net). */
         private const val HTTP_SAFETY_NET_MS = 5 * 60_000L
         // Command poll cadence while there is no usable socket. Telemetry keeps its own

@@ -100,6 +100,11 @@ class ApiClient(private val config: AgentConfig) {
         }
     }
 
+    /** POST /api/v1/checkins/backfill: readings kept while offline (OfflineQueue). One try:
+     *  the queue keeps them for the next chance. */
+    fun backfill(body: JSONObject): JSONObject? =
+        postJson("/api/v1/checkins/backfill", body, attempts = 1)
+
     /** POST /api/v1/logcat */
     fun postLogcat(body: JSONObject): Boolean =
         postJson("/api/v1/logcat", body) != null

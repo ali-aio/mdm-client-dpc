@@ -76,6 +76,44 @@ object Telemetry {
         return obj
     }
 
+    /**
+     * One reading for the offline queue (OfflineQueue): the keys POST /api/v1/checkins/backfill
+     * takes, the same the firmware client keeps. elapsed_ms + boot_id let the server place it
+     * on its own clock even if the device's wall clock is wrong.
+     */
+    fun offlineReading(ctx: Context): JSONObject {
+        val batteryIntent = ctx.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+        val present = batteryIntent?.getBooleanExtra(BatteryManager.EXTRA_PRESENT, false) == true
+        val am = ctx.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+        val mem = ActivityManager.MemoryInfo().also { am.getMemoryInfo(it) }
+        val stat = StatFs(Environment.getDataDirectory().path)
+        return JSONObject().apply {
+            put("at_ms", System.currentTimeMillis())
+            put("elapsed_ms", SystemClock.elapsedRealtime())
+            put("boot_id", bootId(ctx))
+            if (present) readBattery(batteryIntent)?.let { put("battery_pct", it) }
+            val tenths = batteryIntent?.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, Int.MIN_VALUE)
+            if (present && tenths != null && tenths != Int.MIN_VALUE) put("temp_c", tenths / 10.0)
+            else cpuTempC(ctx)?.let { put("temp_c", it) }
+            if (batteryIntent != null && present) put("charging", isCharging(batteryIntent))
+            put("ram_used_mb", (mem.totalMem - mem.availMem) / MB)
+            put("ram_total_mb", mem.totalMem / MB)
+            put("storage_free_gb", Math.round(stat.availableBytes / GB * 10.0) / 10.0)
+            runCatching {
+                @Suppress("DEPRECATION")
+                val info = (ctx.applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager).connectionInfo
+                val rssi = info?.rssi
+                if (rssi != null && rssi < 0 && rssi > -127) put("wifi_rssi", rssi)
+            }
+            OfflineQueue.newCrashes(ctx, CrashEvents.recent(ctx))?.let { put("crashes", it) }
+        }
+    }
+
+    /** This boot, as the server compares it: Android's boot count. */
+    fun bootId(ctx: Context): String =
+        runCatching { android.provider.Settings.Global.getInt(ctx.contentResolver, android.provider.Settings.Global.BOOT_COUNT).toString() }
+            .getOrDefault("")
+
     private fun buildExtra(ctx: Context, batteryIntent: Intent?): JSONObject {
         val am = ctx.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
         val mem = ActivityManager.MemoryInfo().also { am.getMemoryInfo(it) }
