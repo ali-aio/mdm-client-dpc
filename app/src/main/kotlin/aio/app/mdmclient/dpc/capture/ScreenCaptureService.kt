@@ -12,6 +12,7 @@ import android.media.Image
 import android.media.ImageReader
 import android.media.MediaCodec
 import android.media.MediaCodecInfo
+import android.media.MediaCodecList
 import android.media.MediaFormat
 import android.media.projection.MediaProjection
 import android.media.projection.MediaProjectionManager
@@ -105,9 +106,31 @@ class ScreenCaptureService : Service() {
         if (w < 2) w = 2; if (h < 2) h = 2
 
         running = true
-        if (codecName == "jpeg") startJpeg(proj, w, h, dpi, fps, quality)
-        else startH264(proj, w, h, dpi, fps, bitrate)
-        Log.i(TAG, "capture started ${w}x$h @${fps}fps codec=$codecName")
+        if (codecName == "jpeg") {
+            startJpeg(proj, w, h, dpi, fps, quality)
+            Log.i(TAG, "capture started ${w}x$h @${fps}fps codec=jpeg")
+            return
+        }
+        try {
+            startH264(proj, w, h, dpi, fps, bitrate)
+        } catch (e: Exception) {
+            // The operator would otherwise sit on "Waking the device screen" for good: the
+            // session is up but no frame ever comes. Stills are slower but always work, and
+            // the dashboard tells the two apart per frame.
+            Log.w(TAG, "H.264 unavailable (${e.message}); streaming JPEG stills instead")
+            releaseEncoder()
+            val (jw, jh) = capLongSide(w, h, JPEG_FALLBACK_MAX)
+            startJpeg(proj, jw, jh, dpi, fps, quality)
+            Log.i(TAG, "capture started ${jw}x$jh @${fps}fps codec=jpeg (fallback)")
+        }
+    }
+
+    private fun releaseEncoder() {
+        runCatching { virtualDisplay?.release() }
+        virtualDisplay = null
+        runCatching { codec?.stop() }
+        runCatching { codec?.release() }
+        codec = null
     }
 
     /**
@@ -188,7 +211,9 @@ class ScreenCaptureService : Service() {
     }
 
     /** Hardware H.264 (best on real devices) — VirtualDisplay -> MediaCodec input Surface. */
-    private fun startH264(proj: MediaProjection, w: Int, h: Int, dpi: Int, fps: Int, bitrate: Int) {
+    private fun startH264(proj: MediaProjection, reqW: Int, reqH: Int, dpi: Int, fps: Int, bitrate: Int) {
+        val (name, w, h) = pickAvcEncoder(reqW, reqH)
+        Log.i(TAG, "H.264 encoder $name at ${w}x$h (asked ${reqW}x$reqH)")
         val format = MediaFormat.createVideoFormat(MediaFormat.MIMETYPE_VIDEO_AVC, w, h).apply {
             setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface)
             setInteger(MediaFormat.KEY_BIT_RATE, bitrate)
@@ -199,11 +224,11 @@ class ScreenCaptureService : Service() {
                 setInteger(MediaFormat.KEY_BITRATE_MODE, MediaCodecInfo.EncoderCapabilities.BITRATE_MODE_CBR)
             }
         }
-        val enc = MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_VIDEO_AVC)
+        val enc = MediaCodec.createByCodecName(name)
+        codec = enc
         enc.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
         val inputSurface: Surface = enc.createInputSurface()
         enc.start()
-        codec = enc
         virtualDisplay = proj.createVirtualDisplay(
             "mdm-capture", w, h, dpi,
             DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR, inputSurface, null, null,
@@ -341,6 +366,51 @@ class ScreenCaptureService : Service() {
 
     private fun Int.roundDownEven(): Int = this and 1.inv()
 
+    /**
+     * The H.264 encoder to use and the size it can take. `createEncoderByType` hands back
+     * whichever encoder ranks first, and on Android 11 that is Codec2's software one, capped
+     * at 1280x720: a 4K panel at the default half scale (1920x1080) was refused outright
+     * (22 Oct, Mega ZC-3568K, "configure failed 0x80001001") although the board's own
+     * OMX.rk encoder takes 1920x1088. Hardware first; each gets the asked size, or the
+     * largest smaller one it accepts, aspect kept.
+     */
+    private fun pickAvcEncoder(w: Int, h: Int): Triple<String, Int, Int> {
+        val avc = MediaFormat.MIMETYPE_VIDEO_AVC
+        val encoders = MediaCodecList(MediaCodecList.REGULAR_CODECS).codecInfos
+            .filter { info -> info.isEncoder && info.supportedTypes.any { it.equals(avc, true) } }
+            .sortedBy { if (isSoftware(it)) 1 else 0 }
+        for (info in encoders) {
+            val vc = runCatching { info.getCapabilitiesForType(avc).videoCapabilities }.getOrNull() ?: continue
+            val size = fitSize(vc, w, h) ?: continue
+            return Triple(info.name, size.first, size.second)
+        }
+        throw IllegalStateException("no H.264 encoder takes ${w}x$h or smaller")
+    }
+
+    private fun isSoftware(info: MediaCodecInfo): Boolean =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) info.isSoftwareOnly
+        else info.name.startsWith("OMX.google.") || info.name.startsWith("c2.android.")
+
+    /** The asked size if supported, else the largest smaller one (16-aligned, aspect kept). */
+    private fun fitSize(vc: MediaCodecInfo.VideoCapabilities, w: Int, h: Int): Pair<Int, Int>? {
+        if (vc.isSizeSupported(w, h)) return w to h
+        var f = minOf(1.0, vc.supportedWidths.upper.toDouble() / w, vc.supportedHeights.upper.toDouble() / h)
+        repeat(24) {
+            val fw = ((w * f).toInt() / 16) * 16
+            val fh = ((h * f).toInt() / 16) * 16
+            if (fw >= 16 && fh >= 16 && vc.isSizeSupported(fw, fh)) return fw to fh
+            f *= 0.9
+        }
+        return null
+    }
+
+    private fun capLongSide(w: Int, h: Int, max: Int): Pair<Int, Int> {
+        val long = maxOf(w, h)
+        if (long <= max) return w to h
+        val f = max.toDouble() / long
+        return (w * f).toInt().roundDownEven() to (h * f).toInt().roundDownEven()
+    }
+
     companion object {
         private const val TAG = "ScreenCapture"
         private const val NOTIF_ID = 1002
@@ -351,6 +421,7 @@ class ScreenCaptureService : Service() {
         const val EXTRA_CODEC = "codec"
         const val EXTRA_QUALITY = "quality"
         const val EXTRA_SCALE = "scale"
+        private const val JPEG_FALLBACK_MAX = 1280   // long side of the stills when H.264 fails
         const val EXTRA_FPS = "fps"
         const val EXTRA_BITRATE = "bitrate"
         /** Command id for a one-shot still: capture one frame, ack it, stop. */
