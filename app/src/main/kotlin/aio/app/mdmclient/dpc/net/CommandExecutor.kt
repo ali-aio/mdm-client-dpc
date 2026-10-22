@@ -326,6 +326,12 @@ class CommandExecutor(
                     payload.optBoolean("hidden", false),
                 )
                 "remove" -> wifi.remove(ssid)
+                "connect" -> {
+                    // Reversible switch (0.7.0): up to 90 s, acked once back online.
+                    val out = wifi.connect(ssid)
+                    acker.ackCommand(id, if (out.optBoolean("ok", false)) "completed" else "failed", output = out.toString())
+                    return@launch
+                }
                 else -> WifiConfigurator.Result(false, "unknown action: $action")
             }
             if (r.ok) {

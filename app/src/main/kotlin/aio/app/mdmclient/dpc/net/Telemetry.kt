@@ -126,6 +126,8 @@ object Telemetry {
             // and fetches its own work, so a dead or half-open socket costs it a poll
             // interval instead of making it unreachable.
             put("http_commands", true)
+            // wifi_config "connect" switches networks and goes back if the new one fails (0.7.0).
+            put("wifi_connect", true)
             put("agent_version", BuildConfig.VERSION_NAME)
             put("agent_version_code", BuildConfig.VERSION_CODE)
             // A Device Owner installs without a prompt, so an agent update never needs

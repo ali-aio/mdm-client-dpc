@@ -121,6 +121,77 @@ class WifiConfigurator(private val ctx: Context, private val deviceOwner: Device
         return out
     }
 
+    /**
+     * Switch to a saved network, reversibly (0.7.0; device page Wi-Fi card, W1, 22 Oct
+     * 2026). Joins [ssid] and keeps it only if the MDM answers from there within 90 s,
+     * otherwise rejoins the network it was on. A Device Owner may still use
+     * enableNetwork/reconnect. Blocks; call off the main thread. Returns the command output.
+     */
+    @Suppress("DEPRECATION")
+    fun connect(ssid: String): JSONObject {
+        ensureListAccess()
+        val list = saved() ?: return JSONObject().put("error", "switch_failed").put("reason", "cannot read saved networks")
+        val target = list.firstOrNull { unquoted(it.SSID) == ssid }
+            ?: return JSONObject().put("error", "switch_failed").put("reason", "unknown_network")
+        val prevId = currentNetworkId()
+        val prevSsid = list.firstOrNull { it.networkId == prevId }?.let { unquoted(it.SSID) }.orEmpty()
+        if (prevId == target.networkId) return JSONObject().put("ok", true).put("after_s", 0)
+        var authFailed = false
+        val rx = object : android.content.BroadcastReceiver() {
+            override fun onReceive(c: Context, i: android.content.Intent) {
+                if (i.getIntExtra(WifiManager.EXTRA_SUPPLICANT_ERROR, -1) == WifiManager.ERROR_AUTHENTICATING) authFailed = true
+            }
+        }
+        ctx.applicationContext.registerReceiver(rx, android.content.IntentFilter(WifiManager.SUPPLICANT_STATE_CHANGED_ACTION))
+        val seen = inRange(ssid)
+        var joined = false
+        val start = android.os.SystemClock.elapsedRealtime()
+        try {
+            Log.i(TAG, "switching $prevSsid -> $ssid")
+            wm.enableNetwork(target.networkId, true)
+            wm.reconnect()
+            while (android.os.SystemClock.elapsedRealtime() - start < SWITCH_MS && !authFailed) {
+                Thread.sleep(1000)
+                if (currentNetworkId() == target.networkId) {
+                    joined = true
+                    if (mdmAnswers()) {
+                        reenableAll(list)
+                        return JSONObject().put("ok", true).put("ssid", ssid)
+                            .put("after_s", (android.os.SystemClock.elapsedRealtime() - start) / 1000)
+                    }
+                }
+            }
+        } finally {
+            runCatching { ctx.applicationContext.unregisterReceiver(rx) }
+        }
+        val reason = when {
+            authFailed -> "auth_failed"
+            joined -> "no_internet"
+            !seen && !inRange(ssid) -> "not_in_range"
+            else -> "timeout"
+        }
+        Log.w(TAG, "switch to $ssid failed ($reason) — back to $prevSsid")
+        if (prevId != -1) { wm.enableNetwork(prevId, true); wm.reconnect() }
+        reenableAll(list)
+        return JSONObject().put("error", "switch_failed").put("reason", reason).put("ssid", ssid).put("reverted_to", prevSsid)
+    }
+
+    /** enableNetwork(id, true) may leave the others disabled on older releases: undo that. */
+    @Suppress("DEPRECATION")
+    private fun reenableAll(list: List<WifiConfiguration>) {
+        val cur = currentNetworkId()
+        for (c in list) if (c.networkId != cur) runCatching { wm.enableNetwork(c.networkId, false) }
+    }
+
+    @Suppress("DEPRECATION")
+    private fun inRange(ssid: String): Boolean = runCatching { wm.scanResults.any { it.SSID == ssid } }.getOrDefault(false)
+
+    private fun mdmAnswers(): Boolean = runCatching {
+        val c = java.net.URL(aio.app.mdmclient.dpc.AgentConfig.get(ctx).apiUrl("/health")).openConnection() as java.net.HttpURLConnection
+        c.connectTimeout = 5000; c.readTimeout = 5000
+        try { c.responseCode == 200 } finally { c.disconnect() }
+    }.getOrDefault(false)
+
     @Suppress("DEPRECATION")
     private fun saved(): List<WifiConfiguration>? {
         if (ctx.checkSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION) !=
@@ -165,6 +236,7 @@ class WifiConfigurator(private val ctx: Context, private val deviceOwner: Device
     }
 
     companion object {
+        private const val SWITCH_MS = 90_000L
         private const val TAG = "WifiConfig"
         private val SECURITIES = setOf("open", "wpa2", "wpa3")
 
