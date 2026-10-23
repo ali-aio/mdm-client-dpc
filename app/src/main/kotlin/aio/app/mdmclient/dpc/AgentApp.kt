@@ -21,15 +21,15 @@ class AgentApp : Application() {
 
         val status = NotificationChannel(
             CHANNEL_STATUS,
-            "MDM status",
+            "Device status",
             NotificationManager.IMPORTANCE_MIN,
-        ).apply { description = "Persistent agent status" }
+        ).apply { description = "Shows that this device is managed by AIO and connected." }
 
         val updates = NotificationChannel(
             CHANNEL_UPDATES,
-            "MDM updates",
+            "Updates",
             NotificationManager.IMPORTANCE_DEFAULT,
-        ).apply { description = "App installs and command results" }
+        ).apply { description = "Progress and problems for app installs and agent updates." }
 
         nm.createNotificationChannel(status)
         nm.createNotificationChannel(updates)

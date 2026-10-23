@@ -6,6 +6,7 @@ import android.content.pm.PackageManager
 import android.content.pm.Signature
 import android.util.Log
 import aio.app.mdmclient.dpc.AgentConfig
+import aio.app.mdmclient.dpc.Notices
 import org.json.JSONObject
 import java.io.File
 import java.security.MessageDigest
@@ -46,16 +47,32 @@ object AgentUpdater {
     ) {
         if (apkUrl.isBlank()) return ack.send("failed", "missing apk_url")
         val apk = File(ctx.cacheDir, "agent_update.apk")
+        // Progress notice (N2). A successful install ends this process before it can be
+        // taken down; the replacement clears it at start (Notices.clearStale).
+        val note = Notices.InstallNote().apply { name = ctx.getString(aio.app.mdmclient.dpc.R.string.app_name) }
+        val nid = Notices.SELF_UPDATE_ID
+        Notices.installProgress(ctx, nid, note, true, "Starting…", 0)
         try {
-            installer.downloadTo(apkUrl, apk, onProgress)
+            var shown = -1
+            installer.downloadTo(apkUrl, apk) { pct ->
+                onProgress(pct)
+                if (pct != shown && pct < 100) {
+                    shown = pct
+                    Notices.installProgress(ctx, nid, note, true, "$pct %", pct)
+                }
+            }
         } catch (e: Exception) {
             apk.delete()
+            Notices.installFailed(ctx, nid, note)
             return ack.send("failed", "download failed: ${e.message}")
         }
         verify(ctx, apk, payload.optString("sha256"))?.let {
             apk.delete()
+            Notices.installFailed(ctx, nid, note)
             return ack.send("failed", it)
         }
+        Notices.describe(ctx, apk, note)
+        Notices.installProgress(ctx, nid, note, false, null, -1)
 
         val info = archiveInfo(ctx, apk)!!
         val config = AgentConfig.get(ctx)
@@ -66,10 +83,12 @@ object AgentUpdater {
             val result = installer.commitInstall(apk)
             if (!result.success) {
                 config.pendingUpdate = ""
+                Notices.installFailed(ctx, nid, note)
                 ack.send("failed", "install failed: ${result.message}")
             }
         } catch (e: Exception) {
             config.pendingUpdate = ""
+            Notices.installFailed(ctx, nid, note)
             ack.send("failed", "install failed: ${e.message}")
         } finally {
             apk.delete()

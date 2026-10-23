@@ -38,6 +38,18 @@ class DeviceOwner(private val ctx: Context) {
         }
     }
 
+    /** Self-grant POST_NOTIFICATIONS (Android 13+), so install notices show without a prompt. */
+    fun ensureNotificationAccess() {
+        if (!isDeviceOwner || android.os.Build.VERSION.SDK_INT < 33) return
+        runCatching {
+            dpm.setPermissionGrantState(
+                admin, ctx.packageName,
+                android.Manifest.permission.POST_NOTIFICATIONS,
+                DevicePolicyManager.PERMISSION_GRANT_STATE_GRANTED,
+            )
+        }
+    }
+
     /**
      * Self-grant location runtime permissions via Device Owner policy (no user prompt),
      * and force location services on. Called when the server enables location reporting.

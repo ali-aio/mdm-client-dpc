@@ -8,6 +8,7 @@ import android.content.pm.PackageInstaller
 import android.os.Build
 import androidx.core.content.ContextCompat
 import aio.app.mdmclient.dpc.AgentConfig
+import aio.app.mdmclient.dpc.Notices
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.File
@@ -28,13 +29,32 @@ class ApkInstaller(private val ctx: Context, config: AgentConfig) {
         .readTimeout(60, TimeUnit.SECONDS)
         .build()
 
-    /** Download [apkUrl] and install it silently. [onProgress] gets 0..100 download percent. */
+    /**
+     * Download [apkUrl] and install it silently. [onProgress] gets 0..100 download percent.
+     * Shows its own progress notice (N2); on success Android's "Updated by your admin" says
+     * the rest, so ours goes, and on failure ours says so.
+     */
     fun install(apkUrl: String, onProgress: (Int) -> Unit): Result {
         val file = File(ctx.cacheDir, "install_${System.nanoTime()}.apk")
+        val notifId = 2000 + Math.floorMod(apkUrl.hashCode(), 100000)
+        val note = Notices.InstallNote()
+        Notices.installProgress(ctx, notifId, note, true, "Starting…", 0)
         try {
-            downloadTo(apkUrl, file, onProgress)
-            return commitInstall(file)
+            var shown = -1
+            downloadTo(apkUrl, file) { pct ->
+                onProgress(pct)
+                if (pct != shown && pct < 100) {
+                    shown = pct
+                    Notices.installProgress(ctx, notifId, note, true, "$pct %", pct)
+                }
+            }
+            Notices.describe(ctx, file, note)
+            Notices.installProgress(ctx, notifId, note, false, null, -1)
+            val result = commitInstall(file)
+            if (result.success) Notices.cancel(ctx, notifId) else Notices.installFailed(ctx, notifId, note)
+            return result
         } catch (e: Exception) {
+            Notices.installFailed(ctx, notifId, note)
             return Result(false, "install error: ${e.message}")
         } finally {
             file.delete()

@@ -91,12 +91,14 @@ class MdmService : LifecycleService(), WsClient.Listener, Acker {
         executor = CommandExecutor(this, deviceOwner, this, lifecycleScope)
         adbTunnel = AdbTunnel(config)
         deviceOwner.ensureIdentityAccess() // grant READ_PHONE_STATE before resolving the serial
+        deviceOwner.ensureNotificationAccess()
         deviceOwner.ensureAutoTime()
         Grants.ensureAccessibility(this)
         serial = DeviceIdentity.serial(this)
         logcat = LogcatManager(this, serial)
 
         goForeground()
+        Notices.clearStale(this)
         Log.i(TAG, "MdmService started (deviceOwner=${deviceOwner.isDeviceOwner}, configured=${config.isConfigured})")
 
         AgentBus.acker = this
@@ -189,6 +191,7 @@ class MdmService : LifecycleService(), WsClient.Listener, Acker {
                 // Server unreachable or token rejected: back off and retry (a revoked token
                 // keeps failing here, visible in the onboarding screen's status).
                 AgentStatus.checkinResult(false, api.lastError)
+                Notices.refreshStatus(this@MdmService)
                 attempt++
                 delay((30_000L * attempt).coerceAtMost(300_000L))
             }
@@ -342,6 +345,7 @@ class MdmService : LifecycleService(), WsClient.Listener, Acker {
         lastHttpCheckinAt = SystemClock.elapsedRealtime()
         val resp = api.checkin(payload)
         AgentStatus.checkinResult(resp != null, api.lastError)
+        Notices.refreshStatus(this@MdmService)
         lastCheckinOk = resp != null
         if (resp == null) return
         flushOfflineQueue()
@@ -362,6 +366,7 @@ class MdmService : LifecycleService(), WsClient.Listener, Acker {
 
     override fun onOpen() {
         AgentStatus.wsConnected = true
+        Notices.refreshStatus(this@MdmService)
         reconnectAttempt = 0
         sendKeyframe()
         lifecycleScope.launch(Dispatchers.IO) { flushOfflineQueue() }
@@ -446,6 +451,7 @@ class MdmService : LifecycleService(), WsClient.Listener, Acker {
 
     override fun onClosed(reason: String) {
         AgentStatus.wsConnected = false
+        Notices.refreshStatus(this@MdmService)
         if (!wantConnected) return
         // Equal jitter, as the firmware client does: a server restart drops the whole fleet
         // at once, and without it every device retries at 1s, 2s, 4s… in lockstep.
@@ -528,6 +534,7 @@ class MdmService : LifecycleService(), WsClient.Listener, Acker {
         // Sent, or skipped because the server already has it: either way the device is
         // reporting over a live link, which is what the status screen's check-in row means.
         AgentStatus.checkinResult(true, null)
+        Notices.refreshStatus(this@MdmService)
     }
 
     override fun onDestroy() {
@@ -545,21 +552,10 @@ class MdmService : LifecycleService(), WsClient.Listener, Acker {
 
     private fun goForeground() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            startForeground(NOTIF_ID, buildNotification(), ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
+            startForeground(NOTIF_ID, Notices.status(this), ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
         } else {
-            startForeground(NOTIF_ID, buildNotification())
+            startForeground(NOTIF_ID, Notices.status(this))
         }
-    }
-
-    private fun buildNotification(): Notification {
-        val text = if (deviceOwner.isDeviceOwner) "Managed device — agent active" else "Agent running (not provisioned)"
-        return NotificationCompat.Builder(this, AgentApp.CHANNEL_STATUS)
-            .setSmallIcon(R.drawable.ic_launcher_foreground)
-            .setContentTitle(getString(R.string.app_name))
-            .setContentText(text)
-            .setOngoing(true)
-            .setPriority(NotificationCompat.PRIORITY_MIN)
-            .build()
     }
 
     companion object {

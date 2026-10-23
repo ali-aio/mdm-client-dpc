@@ -28,6 +28,7 @@ import android.view.WindowManager
 import androidx.core.app.NotificationCompat
 import aio.app.mdmclient.dpc.AgentApp
 import aio.app.mdmclient.dpc.AgentBus
+import aio.app.mdmclient.dpc.Notices
 import aio.app.mdmclient.dpc.R
 import okio.ByteString.Companion.toByteString
 
@@ -419,10 +420,9 @@ class ScreenCaptureService : Service() {
     }
 
     private fun goForeground() {
-        val notif = NotificationCompat.Builder(this, AgentApp.CHANNEL_STATUS)
-            .setSmallIcon(R.drawable.ic_launcher_foreground)
-            .setContentTitle(getString(R.string.app_name))
-            .setContentText("Screen sharing active")
+        val notif = Notices.base(this, AgentApp.CHANNEL_STATUS, "Managed device")
+            .setContentTitle("Screen shared with AIO")
+            .setContentText("Someone at AIO is viewing this screen")
             .setOngoing(true)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .build()
