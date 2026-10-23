@@ -176,9 +176,11 @@ object Telemetry {
             if (AgentConfig.get(ctx).lostOn) BleBeacon.report()?.let { put("lost_beacon", it) }
             BleListener.sightingsReport()?.let { put("ble_sightings", it) }
             BleListener.scanReport()?.let { put("ble_scan", it) }
-            // A lost device reports what it can hear, every check-in, so the server can
-            // place it (the firmware client sends this always; this agent only when lost).
-            if (AgentConfig.get(ctx).lostOn) wifiScan(ctx)?.let { put("wifi_scan", it) }
+            // What the device can hear, like the firmware client: a lost device is placed by
+            // it, and the Wi-Fi card's Add network ranks the venue's networks by it (0.9.0).
+            // An empty scan (no location permission, or nothing heard) is left out, so the
+            // card does not read every network as "not seen nearby".
+            wifiScan(ctx, AgentConfig.get(ctx).lostOn)?.takeIf { it.length() > 0 }?.let { put("wifi_scan", it) }
         }
     }
 
@@ -190,15 +192,17 @@ object Telemetry {
      * the location permission and location on, which LostMode.enter sees to.
      */
     @Suppress("DEPRECATION")
-    private fun wifiScan(ctx: Context): JSONArray? = runCatching {
+    private fun wifiScan(ctx: Context, lost: Boolean): JSONArray? = runCatching {
         val wm = ctx.applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
         val now = SystemClock.elapsedRealtime()
-        if (now - lastScanStartMs > 60_000L) {
+        // A fresh scan every minute while lost, every five otherwise (radio time).
+        if (now - lastScanStartMs > if (lost) 60_000L else 5 * 60_000L) {
             lastScanStartMs = now
             runCatching { wm.startScan() }
         }
         val out = JSONArray()
-        for (sr in wm.scanResults.orEmpty()) {
+        // The strongest 30: enough to place a device and name what is in range.
+        for (sr in wm.scanResults.orEmpty().sortedByDescending { it.level }.take(30)) {
             out.put(JSONObject().apply {
                 put("bssid", sr.BSSID)
                 put("ssid", sr.SSID)
