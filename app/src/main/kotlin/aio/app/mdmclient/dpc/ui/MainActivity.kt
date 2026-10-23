@@ -338,8 +338,9 @@ class MainActivity : AppCompatActivity() {
         val lines = listOf(
             "Device details: model, serial number, Android version and this app's version",
             "Health: battery, storage, memory, network and uptime",
-            "Which apps are installed",
-            "Location, only while location reporting is on (currently ${if (config.locationEnabled) "on" else "off"})",
+            "Which apps are installed, and how long each is on screen",
+            "Nearby Wi-Fi networks, which the MDM turns into an approximate location",
+            "A GPS location, only while location reporting is on (currently ${if (config.locationEnabled) "on" else "off"})",
             "During a remote support session: the screen, and device logs",
         )
         if (rendered[R.id.privacy] == lines) return

@@ -189,7 +189,7 @@ object Telemetry {
     /**
      * The last scan's access points as {bssid, ssid, rssi} — the firmware client's shape —
      * and a fresh scan asked for at most once a minute (Android throttles more anyway). Needs
-     * the location permission and location on, which LostMode.enter sees to.
+     * the location permission and location on, which the service turns on at start (0.9.1).
      */
     @Suppress("DEPRECATION")
     private fun wifiScan(ctx: Context, lost: Boolean): JSONArray? = runCatching {

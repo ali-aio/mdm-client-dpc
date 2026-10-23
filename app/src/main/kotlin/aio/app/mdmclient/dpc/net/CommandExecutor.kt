@@ -82,7 +82,7 @@ class CommandExecutor(
         // app back over the lost screen. Lifting lost mode applies it then.
         if (config.lostOn) lostMode.reassert() else kiosk.apply(config)
         UpdatePolicyManager.apply(deviceOwner, config.updatePolicyJson)
-        if (config.locationEnabled) deviceOwner.ensureLocationAccess()
+        deviceOwner.ensureLocationAccess() // kept on: the Wi-Fi scan needs it (0.9.1)
         NetworkProvisioner.apply(ctx, deviceOwner, config.networkConfigJson)
         AppRestrictionsManager.apply(deviceOwner, config.appRestrictionsJson)
     }

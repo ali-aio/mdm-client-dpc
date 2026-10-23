@@ -92,6 +92,10 @@ class MdmService : LifecycleService(), WsClient.Listener, Acker {
         adbTunnel = AdbTunnel(config)
         deviceOwner.ensureIdentityAccess() // grant READ_PHONE_STATE before resolving the serial
         deviceOwner.ensureNotificationAccess()
+        // Location like the firmware client (0.9.1): the permission and location on, so the
+        // Wi-Fi scan it sends can be turned into a position by the server. A GPS fix is
+        // still only reported while the fleet's location_enabled policy is on (or lost).
+        deviceOwner.ensureLocationAccess()
         deviceOwner.ensureAutoTime()
         Grants.ensureAccessibility(this)
         serial = DeviceIdentity.serial(this)
