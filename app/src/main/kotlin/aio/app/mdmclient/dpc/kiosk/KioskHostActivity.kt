@@ -33,10 +33,12 @@ class KioskHostActivity : Activity() {
     override fun onResume() {
         super.onResume()
         val cfg = AgentConfig.get(this)
-        val browser = cfg.kioskMode == "browser"
-        val apps = (listOf(cfg.kioskPackage) + cfg.kioskExtraPackages())
-            .filter { it.isNotBlank() && it != packageName }.distinct()
-        val active = cfg.kioskEnabled && (if (browser) cfg.kioskUrl.isNotBlank() else apps.isNotEmpty())
+        // The config's lock, or staff mode's (0.10.0): out of it while staff mode is on, back
+        // into the app staff mode left once staff go back to guest mode.
+        val target = StaffMode.lockedTo(this, cfg)
+        val browser = target != null && target.isEmpty()
+        val apps = target.orEmpty().filter { it.isNotBlank() && it != packageName }.distinct()
+        val active = target != null && (browser || apps.isNotEmpty())
         if (!active) {
             releaseAndLeave()
             return
@@ -94,7 +96,14 @@ class KioskHostActivity : Activity() {
 
     private fun releaseAndLeave() {
         if (isInLockTask()) runCatching { stopLockTask() }
-        runCatching { startActivity(Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
+        // Staff mode opens the app it took the device out of, not the agent's status screen.
+        val staff = StaffMode.staffPackage(this)
+        val next = when {
+            staff == packageName -> Intent(this, KioskBrowserActivity::class.java)
+            staff.isNotEmpty() -> packageManager.getLaunchIntentForPackage(staff)
+            else -> null
+        } ?: Intent(this, MainActivity::class.java)
+        runCatching { startActivity(next.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
         finish()
     }
 

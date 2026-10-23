@@ -20,6 +20,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import aio.app.mdmclient.dpc.kiosk.StaffMode
 import org.json.JSONObject
 import java.util.Collections
 
@@ -78,6 +79,14 @@ class CommandExecutor(
     /** Apply a server `config` frame/payload (kiosk etc.). Shared by WS config messages. */
     fun applyConfig(cfg: JSONObject) {
         config.applyServerConfig(cfg)
+        // Staff mode (0.10.0): the venue's staff PIN, the answer to an exit, and whether the
+        // lock is back on at the server (which answers a re-lock done on the device).
+        StaffMode.applyServer(
+            ctx,
+            cfg.optJSONObject("offline_exit")?.optString("pin"),
+            cfg.optLong("offline_exit_ack", 0),
+            if (cfg.has("kiosk_enabled")) cfg.optBoolean("kiosk_enabled") else null,
+        )
         // While lost, the lock is stored but not applied: applying it would put the locked
         // app back over the lost screen. Lifting lost mode applies it then.
         if (config.lostOn) lostMode.reassert() else kiosk.apply(config)

@@ -10,6 +10,7 @@ import android.util.Log
 import aio.app.mdmclient.dpc.AgentConfig
 import aio.app.mdmclient.dpc.DeviceOwner
 import aio.app.mdmclient.dpc.kiosk.KioskHostActivity
+import aio.app.mdmclient.dpc.kiosk.StaffMode
 
 /**
  * App-lock (kiosk) control via Device Owner APIs. Real, exit-resistant locking of a third-party
@@ -24,15 +25,10 @@ import aio.app.mdmclient.dpc.kiosk.KioskHostActivity
  */
 class KioskManager(private val ctx: Context, private val deviceOwner: DeviceOwner) {
 
-    /** Convenience overload reading the full kiosk state (mode/extras/browser) from config. */
+    /** The lock the device should be in: the config's, or staff mode's (see [StaffMode.lockedTo]). */
     fun apply(config: AgentConfig) {
-        val browser = config.kioskMode == "browser"
-        val active = config.kioskEnabled &&
-            (if (browser) config.kioskUrl.isNotBlank()
-             else config.kioskPackage.isNotBlank() || config.kioskExtraPackages().isNotEmpty())
-        val allowed = if (browser) emptyList()
-        else (listOf(config.kioskPackage) + config.kioskExtraPackages()).filter { it.isNotBlank() }.distinct()
-        apply(active, allowed)
+        val target = StaffMode.lockedTo(ctx, config)
+        apply(target != null, target.orEmpty())
     }
 
     fun apply(enabled: Boolean, allowedPackages: List<String>) {

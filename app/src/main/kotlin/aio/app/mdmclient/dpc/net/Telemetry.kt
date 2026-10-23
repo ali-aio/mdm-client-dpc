@@ -1,5 +1,6 @@
 package aio.app.mdmclient.dpc.net
 
+import aio.app.mdmclient.dpc.kiosk.StaffMode
 import android.app.ActivityManager
 import android.content.Context
 import aio.app.mdmclient.dpc.device.ScreenControl
@@ -171,6 +172,11 @@ object Telemetry {
             runCatching { SecurityPosture.put(ctx, owner, this) }
             runCatching { WifiConfigurator(ctx, owner).report()?.let { put("wifi_networks", it) } }
             put("lost_mode", LostMode.report(ctx))
+            // Staff mode (0.10.0), in the tablets' keys: the exit until the server answers it,
+            // whether staff mode is on, and a re-lock until the config has the lock back.
+            StaffMode.pendingExitAt(ctx).takeIf { it > 0 }?.let { put("offline_exit_at", it) }
+            put("kiosk_staff_mode", StaffMode.isOn(ctx))
+            StaffMode.pendingRelockAt(ctx).takeIf { it > 0 }?.let { put("kiosk_relocked_at", it) }
             // Lost-device Bluetooth (protocol B): the beacon's state while lost, and what this
             // device heard of other lost devices at its venue (only while asked to listen).
             if (AgentConfig.get(ctx).lostOn) BleBeacon.report()?.let { put("lost_beacon", it) }
