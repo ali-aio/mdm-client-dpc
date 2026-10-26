@@ -203,7 +203,11 @@ class ApiClient(private val config: AgentConfig) {
         }
         val req = Request.Builder().url(url).put(body).build()
         client.newCall(req).execute().use { resp ->
-            if (resp.isSuccessful) "" else "upload refused: HTTP ${resp.code}"
+            if (resp.isSuccessful) "" else {
+                // S3 says why in an XML body: <Code>RequestTimeout</Code> and so on.
+                val code = Regex("<Code>([^<]+)</Code>").find(resp.body?.string().orEmpty())?.groupValues?.get(1)
+                "upload refused: HTTP ${resp.code}" + (code?.let { " ($it)" } ?: "")
+            }
         }
     } catch (e: Exception) {
         "upload failed: " + (e.message ?: e.javaClass.simpleName)

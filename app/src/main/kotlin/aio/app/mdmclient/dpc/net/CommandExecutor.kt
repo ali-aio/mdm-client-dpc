@@ -104,20 +104,51 @@ class CommandExecutor(
 
     // ---- handlers ----
 
-    /** Save to library (0.11.0): upload an installed app's APK; see ApkPuller. */
+    /**
+     * Save to library (0.11.0): upload an installed app's APK; see ApkPuller.
+     *
+     * 0.11.1: a pull runs once per command id. The server hands a command out again when
+     * its lease runs out, and 0.11.0 started a second upload of the same APK each time,
+     * the two competing until S3 timed one out. A repeat while it runs is ignored (the
+     * heartbeat below keeps the lease), and a repeat after it ended gets the same answer.
+     */
+    private val pulls = Collections.synchronizedMap(LinkedHashMap<String, Pair<String, String>?>())
+
     private fun pullApk(id: String, payload: JSONObject) {
         val pkg = payload.optString("package")
+        synchronized(pulls) {
+            if (pulls.containsKey(id)) {
+                pulls[id]?.let { (status, out) -> acker.ackCommand(id, status, output = out, pkg = pkg) }
+                return
+            }
+            pulls[id] = null
+            while (pulls.size > 50) pulls.remove(pulls.keys.first())
+        }
         scope.launch(Dispatchers.IO) {
+            val pct = java.util.concurrent.atomic.AtomicInteger(0)
             acker.ackCommand(id, "running", progress = 0)
-            var last = -1
-            val result = ApkPuller(ctx, config).pull(id, pkg) { pct ->
-                if (pct - last >= 10 || pct == 100) {
-                    last = pct
-                    acker.ackCommand(id, "running", progress = pct)
+            // A heartbeat every 10 s whatever the upload does, so the lease never lapses.
+            val beat = launch {
+                while (true) {
+                    delay(10_000)
+                    acker.ackCommand(id, "running", progress = pct.get())
                 }
             }
-            if (result.ok) acker.ackCommand(id, "completed", output = result.message, pkg = pkg)
-            else acker.ackCommand(id, "failed", output = result.message)
+            var last = -1
+            val result = try {
+                ApkPuller(ctx, config).pull(id, pkg) { p ->
+                    pct.set(p)
+                    if (p != last) {
+                        last = p
+                        acker.ackCommand(id, "running", progress = p)
+                    }
+                }
+            } finally {
+                beat.cancel()
+            }
+            val final = if (result.ok) "completed" to result.message else "failed" to result.message
+            pulls[id] = final
+            acker.ackCommand(id, final.first, output = final.second, pkg = if (result.ok) pkg else null)
         }
     }
 
