@@ -35,6 +35,8 @@ object Capabilities {
         // Implemented by ShellSession, but always the unprivileged app UID — so it is
         // advertised and also listed as degraded, rather than withheld entirely.
         "shell",
+        // Save to library: upload an installed app's APK (ApkPuller, 0.11.0).
+        "apk_pull",
     )
 
     /**

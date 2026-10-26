@@ -9,6 +9,7 @@ import aio.app.mdmclient.dpc.Grants
 import aio.app.mdmclient.dpc.capture.ScreenCaptureConsentActivity
 import aio.app.mdmclient.dpc.device.AgentUpdater
 import aio.app.mdmclient.dpc.device.ApkInstaller
+import aio.app.mdmclient.dpc.device.ApkPuller
 import aio.app.mdmclient.dpc.device.KioskManager
 import aio.app.mdmclient.dpc.device.LostMode
 import aio.app.mdmclient.dpc.device.WifiConfigurator
@@ -70,6 +71,7 @@ class CommandExecutor(
             "shell" -> shellCmd(id, frame, payload)
             "lost_mode" -> lostModeCmd(id, payload)
             "wifi_config" -> wifiConfig(id, payload)
+            "pull_apk" -> pullApk(id, payload)
 
             "update_splash" -> unsupported(id, "boot splash requires system partition access")
             else -> unsupported(id, "unknown command type: $type")
@@ -101,6 +103,23 @@ class CommandExecutor(
     }
 
     // ---- handlers ----
+
+    /** Save to library (0.11.0): upload an installed app's APK; see ApkPuller. */
+    private fun pullApk(id: String, payload: JSONObject) {
+        val pkg = payload.optString("package")
+        scope.launch(Dispatchers.IO) {
+            acker.ackCommand(id, "running", progress = 0)
+            var last = -1
+            val result = ApkPuller(ctx, config).pull(id, pkg) { pct ->
+                if (pct - last >= 10 || pct == 100) {
+                    last = pct
+                    acker.ackCommand(id, "running", progress = pct)
+                }
+            }
+            if (result.ok) acker.ackCommand(id, "completed", output = result.message, pkg = pkg)
+            else acker.ackCommand(id, "failed", output = result.message)
+        }
+    }
 
     private fun installApk(id: String, frame: JSONObject, payload: JSONObject) {
         val url = frame.optString("apk_url").ifBlank { payload.optString("apk_url") }

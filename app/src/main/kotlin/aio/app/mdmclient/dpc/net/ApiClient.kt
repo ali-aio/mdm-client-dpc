@@ -149,6 +149,66 @@ class ApiClient(private val config: AgentConfig) {
         return null
     }
 
+    // ---- Save to library (0.11.0): upload an installed APK for a pull_apk command ----
+
+    /** A device-API answer: the parsed body, or why it failed ("HTTP 409: …"). */
+    class Answer(val body: JSONObject?, val error: String)
+
+    /** POST a JSON body and keep the server's error message on a refusal. */
+    fun postForAnswer(path: String, payload: JSONObject, readSeconds: Long = 30): Answer = try {
+        val client = http.newBuilder().readTimeout(readSeconds, TimeUnit.SECONDS).build()
+        val req = Request.Builder()
+            .url(config.apiUrl(path))
+            .header("X-API-Key", config.apiKey)
+            .post(payload.toString().toRequestBody(JSON))
+            .build()
+        client.newCall(req).execute().use { resp ->
+            val text = resp.body?.string().orEmpty()
+            val json = runCatching { if (text.isBlank()) JSONObject() else JSONObject(text) }.getOrNull()
+            if (resp.isSuccessful) Answer(json ?: JSONObject(), "")
+            else Answer(null, "HTTP ${resp.code}" + (json?.optString("error")?.takeIf { it.isNotBlank() }?.let { ": $it" } ?: ""))
+        }
+    } catch (e: Exception) {
+        Answer(null, e.message ?: e.javaClass.simpleName)
+    }
+
+    /**
+     * PUT a file to a presigned URL (the library's S3 bucket; no device key goes with it),
+     * reporting progress 0-100. Returns "" on success or why it failed.
+     */
+    fun putFile(url: String, file: java.io.File, contentType: String, onProgress: (Int) -> Unit): String = try {
+        val client = http.newBuilder()
+            .writeTimeout(10, TimeUnit.MINUTES)
+            .readTimeout(2, TimeUnit.MINUTES)
+            .build()
+        val total = file.length()
+        val body = object : okhttp3.RequestBody() {
+            override fun contentType() = contentType.toMediaType()
+            override fun contentLength() = total
+            override fun writeTo(sink: okio.BufferedSink) {
+                file.inputStream().use { input ->
+                    val buf = ByteArray(64 * 1024)
+                    var sent = 0L
+                    var last = -1
+                    while (true) {
+                        val n = input.read(buf)
+                        if (n < 0) break
+                        sink.write(buf, 0, n)
+                        sent += n
+                        val pct = if (total > 0) (sent * 100 / total).toInt() else 0
+                        if (pct != last) { last = pct; onProgress(pct) }
+                    }
+                }
+            }
+        }
+        val req = Request.Builder().url(url).put(body).build()
+        client.newCall(req).execute().use { resp ->
+            if (resp.isSuccessful) "" else "upload refused: HTTP ${resp.code}"
+        }
+    } catch (e: Exception) {
+        "upload failed: " + (e.message ?: e.javaClass.simpleName)
+    }
+
     companion object {
         private const val TAG = "ApiClient"
         private val JSON = "application/json; charset=utf-8".toMediaType()
