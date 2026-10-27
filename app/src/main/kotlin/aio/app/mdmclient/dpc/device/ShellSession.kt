@@ -6,6 +6,8 @@ import org.json.JSONObject
 import java.io.BufferedReader
 import java.io.BufferedWriter
 import java.io.OutputStreamWriter
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
@@ -32,6 +34,13 @@ class ShellSession(private val acker: Acker) {
     // The command currently in flight (its output lines route to this id until the sentinel).
     @Volatile private var currentId: String? = null
 
+    // One command that never returns (a sysfs read that blocks, a dumpsys that waits) used to
+    // hold the shell for ever, and every later command queued behind it (Sunmi D2s KDS,
+    // 27 Oct 2026). Past its deadline the command is failed and the shell starts afresh.
+    private val deadlines = Executors.newSingleThreadScheduledExecutor { r ->
+        Thread(r, "shell-deadline").apply { isDaemon = true }
+    }
+
     @Synchronized
     fun run(commandId: String, cmd: String) {
         if (cmd.isBlank()) {
@@ -54,11 +63,22 @@ class ShellSession(private val acker: Acker) {
                 write("printf '\\n$sentinel%d\\n' \$?"); newLine()
                 flush()
             }
+            deadlines.schedule({ expire(commandId) }, TIMEOUT_S, TimeUnit.SECONDS)
         } catch (e: Exception) {
             output(commandId, "write failed: ${e.message}\n")
             done(commandId, 1)
             reset()
         }
+    }
+
+    /** The command is still running at its deadline: fail it and start the shell afresh. */
+    @Synchronized
+    private fun expire(commandId: String) {
+        if (currentId != commandId) return
+        Log.w(TAG, "shell command $commandId still running after ${TIMEOUT_S}s: restarting the shell")
+        output(commandId, "\n[no answer after ${TIMEOUT_S} s: stopped, and the shell was restarted]\n")
+        done(commandId, 124)
+        reset()
     }
 
     /** Reset the shell (drops cd/env state) — used on stop or if the session wedges. */
@@ -83,12 +103,12 @@ class ShellSession(private val acker: Acker) {
         process = p
         writer = BufferedWriter(OutputStreamWriter(p.outputStream))
         alive.set(true)
-        readerThread = Thread { pump(p.inputStream.bufferedReader()) }
+        readerThread = Thread { pump(p, p.inputStream.bufferedReader()) }
             .apply { isDaemon = true; name = "shell-pump"; start() }
         Log.i(TAG, "shell session started")
     }
 
-    private fun pump(reader: BufferedReader) {
+    private fun pump(p: Process, reader: BufferedReader) {
         try {
             while (alive.get()) {
                 val line = reader.readLine() ?: break
@@ -108,9 +128,14 @@ class ShellSession(private val acker: Acker) {
         } catch (e: Exception) {
             Log.w(TAG, "shell pump ended: ${e.message}")
         } finally {
-            // If the shell died mid-command, close out the in-flight command.
-            currentId?.let { done(it, 137) }
-            alive.set(false)
+            // If the shell died mid-command, close out the in-flight command. A shell that was
+            // replaced (reset, then a new one started) must not mark its successor dead.
+            synchronized(this) {
+                if (process === p) {
+                    currentId?.let { done(it, 137) }
+                    alive.set(false)
+                }
+            }
         }
     }
 
@@ -134,5 +159,6 @@ class ShellSession(private val acker: Acker) {
 
     companion object {
         private const val TAG = "ShellSession"
+        private const val TIMEOUT_S = 280L // just under the server's 5 min shell sweep
     }
 }
