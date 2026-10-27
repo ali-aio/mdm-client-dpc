@@ -1,8 +1,10 @@
 package aio.app.mdmclient.dpc
 
 import android.app.Notification
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.Process
@@ -11,6 +13,8 @@ import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.lifecycle.LifecycleService
 import androidx.lifecycle.lifecycleScope
+import aio.app.mdmclient.dpc.kiosk.KioskState
+import aio.app.mdmclient.dpc.kiosk.StaffMode
 import aio.app.mdmclient.dpc.capture.ScreenCaptureConsentActivity
 import aio.app.mdmclient.dpc.capture.ScreenCaptureService
 import aio.app.mdmclient.dpc.device.AppUsageReport
@@ -114,6 +118,7 @@ class MdmService : LifecycleService(), WsClient.Listener, Acker {
 
         // Re-enforce any persisted kiosk state after a (re)boot.
         if (deviceOwner.isDeviceOwner) executor.applyConfig(JSONObject())
+        startLockGuard()
 
         maybeStart()
     }
@@ -237,6 +242,55 @@ class MdmService : LifecycleService(), WsClient.Listener, Acker {
                 delay((cfg.everyS - cfg.scanS).coerceAtLeast(5) * 1000L)
             }
         }
+    }
+
+    // ---- Lock guard (0.12.1, 27 Oct 2026) ----
+    // DP02253X11001: locked from the dashboard, then the POS app updated itself, and the
+    // device stayed out of the lock while the dashboard said locked: nothing re-applied it,
+    // because the config had not changed. Two things put it back now: an install or update of
+    // a locked app re-applies the lock a few seconds later, and every LOCK_GUARD_MS the lock
+    // the config asks for is compared with the lock task the device is really in.
+
+    private var lockGuardJob: Job? = null
+    private var lastReassertMs = 0L
+    private val pkgReceiver = object : BroadcastReceiver() {
+        override fun onReceive(c: Context, i: Intent) {
+            val pkg = i.data?.schemeSpecificPart ?: return
+            val locked = StaffMode.lockedTo(c, AgentConfig.get(c)) ?: return
+            if (pkg in locked) {
+                Log.i(TAG, "locked app $pkg (re)installed: lock back on")
+                lifecycleScope.launch(Dispatchers.Main) { delay(3_000L); reassertLock() }
+            }
+        }
+    }
+
+    private fun startLockGuard() {
+        runCatching {
+            registerReceiver(pkgReceiver, IntentFilter().apply {
+                addAction(Intent.ACTION_PACKAGE_ADDED)
+                addAction(Intent.ACTION_PACKAGE_REPLACED)
+                addDataScheme("package")
+            })
+        }.onFailure { Log.w(TAG, "package receiver: ${it.message}") }
+        lockGuardJob?.cancel()
+        lockGuardJob = lifecycleScope.launch(Dispatchers.Main) {
+            while (isActive) {
+                delay(LOCK_GUARD_MS)
+                if (!deviceOwner.isDeviceOwner) continue
+                val cfg = AgentConfig.get(this@MdmService)
+                if (cfg.lostOn || StaffMode.lockedTo(this@MdmService, cfg) == null) continue
+                if (!KioskState.inLockTask(this@MdmService) &&
+                    SystemClock.elapsedRealtime() - lastReassertMs > 60_000L) {
+                    Log.w(TAG, "lock guard: the config locks this device, but it is not in lock task: putting it back")
+                    reassertLock()
+                }
+            }
+        }
+    }
+
+    private fun reassertLock() {
+        lastReassertMs = SystemClock.elapsedRealtime()
+        runCatching { executor.reassertLock() }.onFailure { Log.w(TAG, "re-lock: ${it.message}") }
     }
 
     /** Self-heal a wedged process — see [lastProgressAtMs]. */
@@ -579,6 +633,7 @@ class MdmService : LifecycleService(), WsClient.Listener, Acker {
         private const val COMMAND_POLL_FLOOR_MS = 5 * 60_000L
         /** Watchdog poll cadence. */
         private const val WATCHDOG_CHECK_MS = 30_000L
+        private const val LOCK_GUARD_MS = 30_000L
         /** No checkin-loop tick and no inbound WS message in this long = treat as wedged. */
         private const val WATCHDOG_TIMEOUT_MS = 3 * 60_000L
 

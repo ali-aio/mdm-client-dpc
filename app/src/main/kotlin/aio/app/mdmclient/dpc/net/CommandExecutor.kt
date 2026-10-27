@@ -78,6 +78,11 @@ class CommandExecutor(
         }
     }
 
+    /** Put the lock back as the config has it (0.12.1): the lock guard and an update of the locked app. */
+    fun reassertLock() {
+        if (config.lostOn) lostMode.reassert() else kiosk.apply(config)
+    }
+
     /** Apply a server `config` frame/payload (kiosk etc.). Shared by WS config messages. */
     fun applyConfig(cfg: JSONObject) {
         config.applyServerConfig(cfg)

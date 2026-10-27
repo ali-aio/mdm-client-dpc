@@ -176,6 +176,8 @@ object Telemetry {
             // whether staff mode is on, and a re-lock until the config has the lock back.
             StaffMode.pendingExitAt(ctx).takeIf { it > 0 }?.let { put("offline_exit_at", it) }
             put("kiosk_staff_mode", StaffMode.isOn(ctx))
+            // Whether lock task is really on (0.12.1): the config can say locked while it is not.
+            runCatching { put("kiosk_active", aio.app.mdmclient.dpc.kiosk.KioskState.inLockTask(ctx)) }
             StaffMode.pendingRelockAt(ctx).takeIf { it > 0 }?.let { put("kiosk_relocked_at", it) }
             // Lost-device Bluetooth (protocol B): the beacon's state while lost, and what this
             // device heard of other lost devices at its venue (only while asked to listen).
