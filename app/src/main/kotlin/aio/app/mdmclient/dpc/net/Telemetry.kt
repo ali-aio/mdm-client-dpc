@@ -162,7 +162,7 @@ object Telemetry {
             if (batteryIntent != null) put("charging", isCharging(batteryIntent))
             // SoC temperature. The only reading a battery-less box has; the dashboard
             // shows it with CPU thresholds, not the battery's.
-            cpuTempC(ctx)?.let { put("cpu_temp_c", it) }
+            liveSensor(ctx, "cpu_temp", cpuTempC(ctx))?.let { put("cpu_temp_c", it) }
             put("leanback", ctx.packageManager.hasSystemFeature(PackageManager.FEATURE_LEANBACK))
             attachNetwork(ctx, this)
             CrashEvents.recent(ctx)?.let { put("crash_events", it) }
@@ -356,6 +356,29 @@ object Telemetry {
         }.getOrNull()
         return t?.takeIf { it in 1.0..150.0 }?.let { Math.round(it * 10.0) / 10.0 }
     }
+
+    /**
+     * A temperature sensor is believed once it has moved. Some thermal HALs answer a
+     * fixed placeholder for ever (the Sunmi D3 Pro and the C8G POS both say exactly 37.0),
+     * and a reading that never changes is no reading. Until the value differs from the
+     * first one seen, nothing is sent; once it has, the sensor stays trusted (persisted,
+     * so a restart doesn't hide a real sensor again).
+     */
+    private fun liveSensor(ctx: Context, key: String, value: Double?): Double? {
+        if (value == null) return null
+        val p = ctx.createDeviceProtectedStorageContext().getSharedPreferences(SENSOR_PREFS, Context.MODE_PRIVATE)
+        if (p.getBoolean("${key}_moved", false)) return value
+        val first = p.getFloat("${key}_first", Float.NaN)
+        if (first.isNaN()) {
+            p.edit().putFloat("${key}_first", value.toFloat()).apply()
+            return null
+        }
+        if (kotlin.math.abs(first - value) < 0.05) return null
+        p.edit().putBoolean("${key}_moved", true).apply()
+        return value
+    }
+
+    private const val SENSOR_PREFS = "sensors"
 
     private fun isCharging(batteryIntent: Intent): Boolean {
         if (batteryIntent.getIntExtra(BatteryManager.EXTRA_PLUGGED, 0) != 0) return true
