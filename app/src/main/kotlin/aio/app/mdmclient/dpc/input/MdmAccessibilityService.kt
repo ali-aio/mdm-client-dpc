@@ -213,13 +213,60 @@ class MdmAccessibilityService : AccessibilityService(), AgentBus.InputSink {
         val x = (e.optDouble("x", 0.0).toFloat()).coerceIn(0f, 1f) * m.widthPixels
         val y = (e.optDouble("y", 0.0).toFloat()).coerceIn(0f, 1f) * m.heightPixels
         when (e.optString("event")) {
-            "down" -> { downX = x; downY = y; downTime = System.currentTimeMillis() }
+            "down" -> {
+                downX = x; downY = y; downTime = System.currentTimeMillis()
+                endHold(false)
+                main.postDelayed(startHold, HOLD_AFTER_MS)
+            }
             "move" -> { /* intermediate points ignored; reconstructed as a swipe on up */ }
             "up" -> {
+                main.removeCallbacks(startHold)
+                // A press held on the remote is held on the device until now (0.12.0).
+                if (holdStroke != null) { endHold(true); return }
                 val moved = hypot((x - downX).toDouble(), (y - downY).toDouble())
                 if (moved > TAP_SLOP) swipe(downX, downY, x, y) else tap(x, y)
             }
         }
+    }
+
+    // ---- Holding a press from the remote screen (0.12.0, 27 Oct 2026) ----
+    // Before this a press held on the remote arrived as a 60 ms tap, so nothing that needs a
+    // long press worked from the dashboard, the staff corner's 5 s hold included. Now, once
+    // the remote's button has been down HOLD_AFTER_MS without an up, the device puts its own
+    // touch down at that spot and keeps it there with continued strokes (Android 8+) until
+    // the remote lets go, then lifts it. A hold the remote never ends lifts after
+    // HOLD_MAX_MS. Moving while held is not followed: a drag is still a swipe.
+
+    private var holdStroke: GestureDescription.StrokeDescription? = null
+    private var holdSince = 0L
+    private var holdRelease = false
+
+    private val startHold = Runnable {
+        val first = GestureDescription.StrokeDescription(Path().apply { moveTo(downX, downY) }, 0, HOLD_STEP_MS, true)
+        holdStroke = first
+        holdSince = SystemClock.elapsedRealtime()
+        holdRelease = false
+        sendHold(first)
+    }
+
+    private fun sendHold(stroke: GestureDescription.StrokeDescription) {
+        val cb = object : GestureResultCallback() {
+            override fun onCompleted(g: GestureDescription?) {
+                val cur = holdStroke ?: return
+                if (!cur.willContinue()) { holdStroke = null; return }
+                val stop = holdRelease || SystemClock.elapsedRealtime() - holdSince > HOLD_MAX_MS
+                val next = cur.continueStroke(Path().apply { moveTo(downX, downY) }, 0, if (stop) 50 else HOLD_STEP_MS, !stop)
+                holdStroke = next
+                sendHold(next)
+            }
+            override fun onCancelled(g: GestureDescription?) { holdStroke = null }
+        }
+        if (!dispatchGesture(GestureDescription.Builder().addStroke(stroke).build(), cb, main)) holdStroke = null
+    }
+
+    /** Lift a held press at the next step (release = the remote let go); without one, nothing. */
+    private fun endHold(release: Boolean) {
+        if (holdStroke != null) holdRelease = true else if (!release) holdRelease = false
     }
 
     private fun tap(x: Float, y: Float) {
@@ -295,6 +342,9 @@ class MdmAccessibilityService : AccessibilityService(), AgentBus.InputSink {
     companion object {
         private const val TAG = "MdmA11y"
         private const val TAP_SLOP = 16.0
+        private const val HOLD_AFTER_MS = 350L   // a remote press longer than this is a hold
+        private const val HOLD_STEP_MS = 200L    // each continued stroke while held
+        private const val HOLD_MAX_MS = 30_000L  // a hold the remote never ends lifts by itself
         private const val CORNER_HOLD_MS = 5_000L
         /** Up Up Down Down Left Right Left Right, within 8 seconds. */
         private val STAFF_CODE = listOf(
