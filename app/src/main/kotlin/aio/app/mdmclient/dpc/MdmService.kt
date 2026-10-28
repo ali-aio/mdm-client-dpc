@@ -388,7 +388,12 @@ class MdmService : LifecycleService(), WsClient.Listener, Acker {
             while (isActive && wantConnected) {
                 lastProgressAtMs = SystemClock.elapsedRealtime()
                 val httpDue = SystemClock.elapsedRealtime() - lastHttpCheckinAt >= HTTP_SAFETY_NET_MS
-                if (!ws.isOpen || httpDue || lastHttpCheckinAt == 0L) doCheckin() else pushTelemetry()
+                // The app list only travels in an HTTP check-in. Until the server has it
+                // (first check-in failed, or it asked again with send_apps), check in over
+                // HTTP every cycle instead of waiting for the 5-minute safety net: a new
+                // device showed no apps and got no host app for 6 minutes (28 Oct 2026).
+                val appsOwed = lastKnownAppsHash == null
+                if (!ws.isOpen || httpDue || lastHttpCheckinAt == 0L || appsOwed) doCheckin() else pushTelemetry()
                 maybeQueueOffline()
                 delay(config.checkinIntervalSeconds * 1000L)
             }
