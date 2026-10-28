@@ -144,7 +144,11 @@ class StaffPinActivity : Activity() {
         col.addView(status, margins(top = 10))
 
         val grid = GridLayout(this).apply { columnCount = 3 }
-        val size = dp(if (landscape) 72 else 76)
+        // Four rows of keys plus the dots, the message and Cancel must fit the panel's height:
+        // on a 1080p TV (540 dp tall) 72 dp keys pushed the dots to the top edge.
+        val hDp = resources.configuration.screenHeightDp
+        val fit = (if (landscape) hDp - 240 else (hDp - 330) * 2 / 3) / 4 - 14
+        val size = dp(fit.coerceIn(52, if (landscape) 76 else 96))
         for (k in listOf("1", "2", "3", "4", "5", "6", "7", "8", "9", DEL, "0", GO)) {
             val b = Button(this).apply {
                 text = k
