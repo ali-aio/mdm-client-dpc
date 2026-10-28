@@ -182,8 +182,18 @@ class MdmAccessibilityService : AccessibilityService(), AgentBus.InputSink {
     // TV boxes: the D-pad code, watched without taking the keys from the app.
     override fun onKeyEvent(event: KeyEvent): Boolean {
         if (touch || event.action != KeyEvent.ACTION_DOWN || event.repeatCount != 0) return false
+        staffCodeKey(event.keyCode)
+        return false
+    }
+
+    /**
+     * One key press towards the staff code: from the box's own remote (onKeyEvent) or from the
+     * dashboard's on-screen D-pad (handleKey). The dashboard's presses are global actions, which
+     * never pass through onKeyEvent, so until 0.12.5 the code could not be entered from there.
+     */
+    private fun staffCodeKey(keyCode: Int) {
         val now = SystemClock.elapsedRealtime()
-        keyLog.addLast(event.keyCode to now)
+        keyLog.addLast(keyCode to now)
         while (keyLog.size > STAFF_CODE.size) keyLog.removeFirst()
         if (keyLog.size == STAFF_CODE.size &&
             keyLog.map { it.first } == STAFF_CODE &&
@@ -195,7 +205,6 @@ class MdmAccessibilityService : AccessibilityService(), AgentBus.InputSink {
                 locked() -> main.post { openPinPad() }
             }
         }
-        return false
     }
     override fun onInterrupt() { /* no-op */ }
 
@@ -287,6 +296,7 @@ class MdmAccessibilityService : AccessibilityService(), AgentBus.InputSink {
     }
 
     private fun handleKey(keycode: Int) {
+        if (!touch) staffCodeKey(keycode)
         // Volume is not a global action; adjust the music stream directly (TV boxes have
         // no hardware volume keys the operator could otherwise reach).
         val dir = when (keycode) {
