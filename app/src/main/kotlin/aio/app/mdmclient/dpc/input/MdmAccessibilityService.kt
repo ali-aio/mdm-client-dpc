@@ -76,7 +76,13 @@ class MdmAccessibilityService : AccessibilityService(), AgentBus.InputSink {
     private var pill: View? = null
     private val keyLog = ArrayDeque<Pair<Int, Long>>()
 
-    private val touch: Boolean by lazy { packageManager.hasSystemFeature(PackageManager.FEATURE_TOUCHSCREEN) }
+    // A TV box uses the D-pad code even when it claims a touchscreen: the HK1 RBOX D8 lists
+    // android.hardware.touchscreen, so until 0.12.6 it waited for a corner hold nobody can do
+    // and ignored the code. Leanback is Android's own "this is a TV" flag.
+    private val touch: Boolean by lazy {
+        packageManager.hasSystemFeature(PackageManager.FEATURE_TOUCHSCREEN) &&
+            !packageManager.hasSystemFeature(PackageManager.FEATURE_LEANBACK)
+    }
 
     private fun locked(): Boolean {
         val am = getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
