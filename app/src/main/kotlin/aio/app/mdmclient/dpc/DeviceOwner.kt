@@ -29,25 +29,13 @@ class DeviceOwner(private val ctx: Context) {
      */
     fun ensureIdentityAccess() {
         if (!isDeviceOwner) return
-        runCatching {
-            dpm.setPermissionGrantState(
-                admin, ctx.packageName,
-                android.Manifest.permission.READ_PHONE_STATE,
-                DevicePolicyManager.PERMISSION_GRANT_STATE_GRANTED,
-            )
-        }
+        grantSelf(android.Manifest.permission.READ_PHONE_STATE)
     }
 
     /** Self-grant POST_NOTIFICATIONS (Android 13+), so install notices show without a prompt. */
     fun ensureNotificationAccess() {
         if (!isDeviceOwner || android.os.Build.VERSION.SDK_INT < 33) return
-        runCatching {
-            dpm.setPermissionGrantState(
-                admin, ctx.packageName,
-                android.Manifest.permission.POST_NOTIFICATIONS,
-                DevicePolicyManager.PERMISSION_GRANT_STATE_GRANTED,
-            )
-        }
+        grantSelf(android.Manifest.permission.POST_NOTIFICATIONS)
     }
 
     /**
@@ -56,21 +44,34 @@ class DeviceOwner(private val ctx: Context) {
      */
     fun ensureLocationAccess() {
         if (!isDeviceOwner) return
-        val pkg = ctx.packageName
         for (perm in arrayOf(
             android.Manifest.permission.ACCESS_COARSE_LOCATION,
             android.Manifest.permission.ACCESS_FINE_LOCATION,
             android.Manifest.permission.ACCESS_BACKGROUND_LOCATION,
-        )) {
-            runCatching {
-                dpm.setPermissionGrantState(
-                    admin, pkg, perm, DevicePolicyManager.PERMISSION_GRANT_STATE_GRANTED,
-                )
+        )) grantSelf(perm)
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+            val lm = ctx.getSystemService(Context.LOCATION_SERVICE) as? android.location.LocationManager
+            if (lm == null || !runCatching { lm.isLocationEnabled }.getOrDefault(false)) {
+                runCatching { dpm.setLocationEnabled(admin, true) }
             }
         }
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
-            runCatching { dpm.setLocationEnabled(admin, true) }
-        }
+    }
+
+    /**
+     * Grant a runtime permission to ourselves by policy, only when it is not already granted
+     * that way. Every grant of a location permission makes the permission controller post
+     * "AIO MDM has location access" again, with sound; this ran on every config frame and
+     * every BLE scan, so POS and KDS units (no way to mute) chimed all day (0.13.2).
+     */
+    fun grantSelf(perm: String) {
+        if (!isDeviceOwner) return
+        val pkg = ctx.packageName
+        val held = runCatching {
+            dpm.getPermissionGrantState(admin, pkg, perm) == DevicePolicyManager.PERMISSION_GRANT_STATE_GRANTED &&
+                ctx.checkSelfPermission(perm) == android.content.pm.PackageManager.PERMISSION_GRANTED
+        }.getOrDefault(false)
+        if (held) return
+        runCatching { dpm.setPermissionGrantState(admin, pkg, perm, DevicePolicyManager.PERMISSION_GRANT_STATE_GRANTED) }
     }
 
     /**

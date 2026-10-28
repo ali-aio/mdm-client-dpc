@@ -2,7 +2,6 @@ package aio.app.mdmclient.dpc.device
 
 import android.Manifest
 import android.annotation.SuppressLint
-import android.app.admin.DevicePolicyManager
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothManager
 import android.content.Context
@@ -52,12 +51,7 @@ class BleRadio(private val ctx: Context, private val owner: DeviceOwner) {
             // Without neverForLocation (beacons need it off), scan results still need location.
             Manifest.permission.ACCESS_FINE_LOCATION,
         ) else arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)
-        for (p in perms) {
-            runCatching {
-                owner.dpm.setPermissionGrantState(owner.admin, ctx.packageName, p,
-                    DevicePolicyManager.PERMISSION_GRANT_STATE_GRANTED)
-            }
-        }
+        for (p in perms) owner.grantSelf(p)
     }
 
     fun granted(perm: String): Boolean =

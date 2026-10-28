@@ -203,17 +203,7 @@ class WifiConfigurator(private val ctx: Context, private val deviceOwner: Device
     @Suppress("DEPRECATION")
     private fun currentNetworkId(): Int = runCatching { wm.connectionInfo?.networkId ?: -1 }.getOrDefault(-1)
 
-    private fun ensureListAccess() {
-        if (ctx.checkSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION) ==
-            android.content.pm.PackageManager.PERMISSION_GRANTED
-        ) return
-        runCatching {
-            deviceOwner.dpm.setPermissionGrantState(
-                deviceOwner.admin, ctx.packageName, android.Manifest.permission.ACCESS_FINE_LOCATION,
-                android.app.admin.DevicePolicyManager.PERMISSION_GRANT_STATE_GRANTED,
-            )
-        }
-    }
+    private fun ensureListAccess() = deviceOwner.grantSelf(android.Manifest.permission.ACCESS_FINE_LOCATION)
 
     @Suppress("DEPRECATION")
     private fun setSecurity(wc: WifiConfiguration, type: Int, legacyKeyMgmt: Int) {
