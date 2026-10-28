@@ -23,6 +23,7 @@ import aio.app.mdmclient.dpc.AgentConfig
 object StaffMode {
     private const val PREFS = "mdm_staff"
     private const val K_PIN = "pin"
+    private const val K_VENUE = "venue"
     private const val K_PKG = "staff_pkg"          // host app staff mode left, "" = not in staff mode
     private const val K_EXIT_AT = "exit_at"        // epoch secs, 0 = none waiting for the server
     private const val K_RELOCK_AT = "relock_at"    // epoch secs, 0 = none waiting
@@ -41,16 +42,19 @@ object StaffMode {
         ctx.createDeviceProtectedStorageContext().getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
     fun pin(ctx: Context): String = prefs(ctx).getString(K_PIN, DEFAULT_PIN)!!.ifEmpty { DEFAULT_PIN }
+    /** The venue whose PIN the pad wants ("" when the device has none or the server is older). */
+    fun venue(ctx: Context): String = prefs(ctx).getString(K_VENUE, "")!!
     fun staffPackage(ctx: Context): String = prefs(ctx).getString(K_PKG, "")!!
     fun isOn(ctx: Context): Boolean = staffPackage(ctx).isNotEmpty()
     fun pendingExitAt(ctx: Context): Long = prefs(ctx).getLong(K_EXIT_AT, 0)
     fun pendingRelockAt(ctx: Context): Long = prefs(ctx).getLong(K_RELOCK_AT, 0)
 
     /** The server's offline_exit block (a venue PIN) and offline_exit_ack. */
-    fun applyServer(ctx: Context, offlineExitPin: String?, ack: Long, kioskEnabled: Boolean?) {
+    fun applyServer(ctx: Context, offlineExitPin: String?, ack: Long, kioskEnabled: Boolean?, venue: String? = null) {
         val p = prefs(ctx)
         val e = p.edit()
         if (!offlineExitPin.isNullOrBlank()) e.putString(K_PIN, offlineExitPin)
+        if (venue != null) e.putString(K_VENUE, venue)
         if (ack > 0 && ack == p.getLong(K_EXIT_AT, 0)) e.putLong(K_EXIT_AT, 0)
         // The lock is back on at the server: the re-lock is answered.
         if (kioskEnabled == true && p.getLong(K_RELOCK_AT, 0) > 0) e.putLong(K_RELOCK_AT, 0).putString(K_RELOCK_PKG, "")

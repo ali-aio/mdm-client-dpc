@@ -93,6 +93,7 @@ class CommandExecutor(
             cfg.optJSONObject("offline_exit")?.optString("pin"),
             cfg.optLong("offline_exit_ack", 0),
             if (cfg.has("kiosk_enabled")) cfg.optBoolean("kiosk_enabled") else null,
+            cfg.optJSONObject("offline_exit")?.let { if (it.has("venue")) it.optString("venue") else null },
         )
         // While lost, the lock is stored but not applied: applying it would put the locked
         // app back over the lost screen. Lifting lost mode applies it then.
