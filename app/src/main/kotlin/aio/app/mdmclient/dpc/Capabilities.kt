@@ -37,6 +37,8 @@ object Capabilities {
         "shell",
         // Save to library: upload an installed app's APK (ApkPuller, 0.11.0).
         "apk_pull",
+        // Move to another MDM server: enroll there, then switch (0.13.4).
+        "move_server",
     )
 
     /**

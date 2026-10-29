@@ -72,6 +72,7 @@ class CommandExecutor(
             "lost_mode" -> lostModeCmd(id, payload)
             "wifi_config" -> wifiConfig(id, payload)
             "pull_apk" -> pullApk(id, payload)
+            "move_server" -> moveServer(id, payload)
 
             "update_splash" -> unsupported(id, "boot splash requires system partition access")
             else -> unsupported(id, "unknown command type: $type")
@@ -304,6 +305,59 @@ class CommandExecutor(
      * agent makes itself inert instead (no server, no key, and [AgentConfig.unenrolled] set so
      * a reboot cannot start it again) and offers the uninstall for whoever is standing there.
      */
+    /**
+     * Move to another MDM (0.13.4): the firmware client's move-server, for a normal app.
+     * The command names the new server and an enrollment token minted there. The device
+     * enrolls with it first, while still talking to this server, so a bad URL or token fails
+     * here and changes nothing; only once the new server has issued a key does it report
+     * success, switch address and key, and restart its connection there.
+     */
+    private fun moveServer(id: String, payload: JSONObject) {
+        val target = payload.optString("server_url").trim().trimEnd('/')
+        val token = payload.optString("enroll_token").trim()
+        if (!target.startsWith("https://") || android.net.Uri.parse(target).host.isNullOrBlank()) {
+            acker.ackCommand(id, "failed", output = "not a server URL: $target")
+            return
+        }
+        if (token.isBlank()) {
+            acker.ackCommand(id, "failed", output = "no enrollment token for $target")
+            return
+        }
+        if (target == config.serverUrl) {
+            acker.ackCommand(id, "completed", output = "already on $target")
+            return
+        }
+        scope.launch(Dispatchers.IO) {
+            acker.ackCommand(id, "running", output = "enrolling with $target")
+            val identity = JSONObject()
+                .put("serial", aio.app.mdmclient.dpc.DeviceIdentity.serial(ctx))
+                .put("product", aio.app.mdmclient.dpc.DeviceIdentity.product())
+                .put("model", android.os.Build.MODEL)
+                .put("os_version", android.os.Build.VERSION.RELEASE ?: "")
+            val api = ApiClient(config)
+            val resp = api.enroll(token, identity, target)
+            val key = resp?.optString("device_key").orEmpty()
+            if (key.isBlank()) {
+                acker.ackCommand(id, "failed", output = "$target refused: ${api.lastError.ifBlank { "no key" }}")
+                return@launch
+            }
+            acker.ackCommand(id, "completed", output = "moved to $target")
+            delay(3_000) // let the ack leave over this server's socket before it closes
+            config.serverUrl = target
+            config.apiKey = key
+            config.enrollToken = ""
+            config.lastEnrollToken = token
+            config.enrollSummary = "Moved to " + (android.net.Uri.parse(target).host ?: target)
+            Log.i(TAG, "moved to $target")
+            // Restart from the main thread: stopping the service cancels this coroutine's scope.
+            android.os.Handler(android.os.Looper.getMainLooper()).post {
+                val svc = android.content.Intent(ctx, aio.app.mdmclient.dpc.MdmService::class.java)
+                ctx.stopService(svc)
+                aio.app.mdmclient.dpc.MdmService.start(ctx)
+            }
+        }
+    }
+
     private fun unenroll(id: String) {
         acker.ackCommand(id, "completed", output = "unenrolling")
         val wasOwner = deviceOwner.isDeviceOwner

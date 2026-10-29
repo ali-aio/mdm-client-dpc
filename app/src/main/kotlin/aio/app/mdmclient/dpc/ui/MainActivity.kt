@@ -542,6 +542,7 @@ class MainActivity : AppCompatActivity() {
             "reboot" to "Reboot",
             "wipe" to "Remote wipe",
             "unenroll" to "Unenroll",
+            "move_server" to "Move server",
             "config" to "Remote config",
             "telemetry" to "Health reporting",
             "shell" to "Shell",

@@ -39,12 +39,13 @@ class ApiClient(private val config: AgentConfig) {
      * API key. Unauthenticated by design (the token IS the credential); no X-API-Key header.
      * Returns the response ({device_key, ...}) or null on failure. A 401 means the token is
      * invalid/revoked — the caller should surface that rather than retry forever.
+     * [base] is the server to enroll with: this one, or the one a move_server command names.
      */
-    fun enroll(token: String, identity: JSONObject): JSONObject? {
+    fun enroll(token: String, identity: JSONObject, base: String = config.serverUrl): JSONObject? {
         val payload = JSONObject(identity.toString()).put("token", token)
         try {
             val req = Request.Builder()
-                .url(config.apiUrl("/api/v1/enroll"))
+                .url(base.trimEnd('/') + "/api/v1/enroll")
                 .post(payload.toString().toRequestBody(JSON))
                 .build()
             http.newCall(req).execute().use { resp ->
