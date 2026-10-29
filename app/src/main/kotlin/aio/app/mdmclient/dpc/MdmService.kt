@@ -512,14 +512,18 @@ class MdmService : LifecycleService(), WsClient.Listener, Acker {
         }
     }
 
-    override fun onClosed(reason: String) {
+    override fun onClosed(reason: String, code: Int) {
         AgentStatus.wsConnected = false
         Notices.refreshStatus(this@MdmService)
         if (!wantConnected) return
         // Equal jitter, as the firmware client does: a server restart drops the whole fleet
         // at once, and without it every device retries at 1s, 2s, 4s… in lockstep.
         val base = BACKOFF_MS[reconnectAttempt.coerceIn(0, BACKOFF_MS.lastIndex)]
-        val delayMs = base / 2 + Random.nextLong(base / 2 + 1)
+        // 1012 = the server is restarting (a deploy). The other copy is still up, so there is
+        // no hurry: spread the whole fleet over RESTART_SPREAD_MS instead of every device
+        // landing on it in the same second (0.13.5). Check-ins carry on over HTTP meanwhile.
+        val delayMs = if (code == 1012) Random.nextLong(RESTART_SPREAD_MS + 1)
+            else base / 2 + Random.nextLong(base / 2 + 1)
         reconnectAttempt++
         Log.i(TAG, "WS closed ($reason); reconnecting in ${delayMs}ms")
         reconnectJob?.cancel()
@@ -627,6 +631,7 @@ class MdmService : LifecycleService(), WsClient.Listener, Acker {
         private const val TAG = "MdmService"
         private const val NOTIF_ID = 1001
         private val BACKOFF_MS = longArrayOf(1000, 2000, 4000, 8000, 30000)
+        private const val RESTART_SPREAD_MS = 30_000L
         private const val OFFLINE_SAMPLE_MS = 5 * 60 * 1000L
         private const val OFFLINE_BATCH = 200
         /** Full HTTP keyframe cadence while the WS is live (the firmware client's safety net). */

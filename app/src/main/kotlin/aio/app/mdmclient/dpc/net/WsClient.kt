@@ -23,7 +23,8 @@ class WsClient(
     interface Listener {
         fun onOpen()
         fun onMessage(msg: JSONObject)
-        fun onClosed(reason: String)
+        /** [code] is the server's close code, 0 when the socket failed without one. */
+        fun onClosed(reason: String, code: Int)
     }
 
     private val http = OkHttpClient.Builder()
@@ -66,13 +67,13 @@ class WsClient(
 
             override fun onClosed(ws: WebSocket, code: Int, reason: String) {
                 isOpen = false
-                listener.onClosed("closed $code $reason")
+                listener.onClosed("closed $code $reason", code)
             }
 
             override fun onFailure(ws: WebSocket, t: Throwable, response: Response?) {
                 isOpen = false
                 Log.w(TAG, "WS failure: ${t.message}")
-                listener.onClosed("failure ${t.message}")
+                listener.onClosed("failure ${t.message}", 0)
             }
         })
     }
