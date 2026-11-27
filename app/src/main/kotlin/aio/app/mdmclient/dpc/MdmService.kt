@@ -491,7 +491,9 @@ class MdmService : LifecycleService(), WsClient.Listener, Acker {
         }
         resp.optJSONObject("config")?.let { executor.applyConfig(it) }
         // Free backup channel: if the response already carries queued work, run it rather
-        // than waiting for the next poll.
+        // than waiting for the next poll. It is a command poll too, so the floor poll below
+        // need not ask again (API audit, 27 Nov 2026: the two ran side by side).
+        lastCommandPollAt = SystemClock.elapsedRealtime()
         runHttpCommands(resp)
     }
 
@@ -723,13 +725,17 @@ class MdmService : LifecycleService(), WsClient.Listener, Acker {
         private const val RESTART_SPREAD_MS = 30_000L
         private const val OFFLINE_SAMPLE_MS = 5 * 60 * 1000L
         private const val OFFLINE_BATCH = 200
-        /** Full HTTP keyframe cadence while the WS is live (the firmware client's safety net). */
-        private const val HTTP_SAFETY_NET_MS = 5 * 60_000L
+        /** Full HTTP keyframe cadence while the WS is live (the firmware client's safety net).
+         *  15 minutes since 0.19.0 (was 5): the socket carries telemetry and commands, and the
+         *  server's device-traffic counts showed this check-in as a third of all requests. */
+        private const val HTTP_SAFETY_NET_MS = 15 * 60_000L
         // Command poll cadence while there is no usable socket. Telemetry keeps its own
         // five-minute keyframe: this dial is command latency, nothing else.
         private const val COMMAND_POLL_MS = 60_000L
-        /** Poll at least this often even with an open socket — see the floor check. */
-        private const val COMMAND_POLL_FLOOR_MS = 5 * 60_000L
+        /** Poll at least this often even with an open socket — see the floor check. The HTTP
+         *  check-in counts as a poll (it carries the queued commands), so with the socket up
+         *  this is one request per 15 minutes, not two per 5 (0.19.0). */
+        private const val COMMAND_POLL_FLOOR_MS = HTTP_SAFETY_NET_MS
         /** Watchdog poll cadence. */
         private const val WATCHDOG_CHECK_MS = 30_000L
         private const val LOCK_GUARD_MS = 30_000L
